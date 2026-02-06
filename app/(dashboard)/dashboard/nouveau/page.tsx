@@ -34,7 +34,7 @@ export default function NewPatientPage() {
   });
 
   useEffect(() => {
-    templatesApi.getAll().then(setTemplates);
+    templatesApi.getAll('', 1, 100).then(response => setTemplates(response.items));
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

@@ -82,6 +82,7 @@ Authorization: Bearer <token>
 | POST | `/templates/{id}/rows` | Add row |
 | DELETE | `/templates/{id}/rows/{rowID}` | Delete row |
 | POST | `/templates/{id}/schedules` | Add schedule |
+| DELETE | `/templates/{id}/schedules/{scheduleID}` | Delete schedule |
 | POST | `/templates/{id}/materials` | Add material |
 | DELETE | `/templates/{id}/materials/{materialID}` | Remove material |
 

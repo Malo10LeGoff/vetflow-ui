@@ -377,3 +377,16 @@ export interface RowEntry {
   numeric_value: number | null;
   flagged: boolean;
 }
+
+// Generic paginated response
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// Specific paginated responses
+export type PaginatedMaterials = PaginatedResponse<Material>;
+export type PaginatedMedications = PaginatedResponse<Medication>;
+export type PaginatedTemplates = PaginatedResponse<Template>;

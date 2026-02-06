@@ -6,47 +6,50 @@ All endpoints require `Authorization: Bearer <token>` header.
 
 ## GET /templates
 
-Get all templates for the clinic.
+Get templates for the clinic with pagination.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `search` | string | No | - | Search term (matches name) |
+| `page` | int | No | 1 | Page number |
+| `page_size` | int | No | 20 | Items per page (max 100) |
+
+**Examples:**
+- `GET /templates` - returns first 20 templates
+- `GET /templates?search=colique` - search by name
+- `GET /templates?page=1&page_size=10` - paginated results
 
 **Response (200 OK):**
 ```json
-[
-  {
-    "id": "00000000-0000-0000-0000-000000000101",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Colique",
-    "is_default": true,
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000102",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Chirurgie",
-    "is_default": true,
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000103",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Soins Intensifs",
-    "is_default": true,
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000104",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Poulain",
-    "is_default": true,
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000105",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Castration",
-    "is_default": true,
-    "created_at": "2024-02-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000101",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Colique",
+      "is_default": true,
+      "created_at": "2024-02-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000102",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Chirurgie",
+      "is_default": true,
+      "created_at": "2024-02-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000103",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Soins Intensifs",
+      "is_default": true,
+      "created_at": "2024-02-01T00:00:00Z"
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "page_size": 20
+}
 ```
 
 ---
@@ -450,6 +453,14 @@ Add a schedule to a template (recurring task).
   "default_unit": null
 }
 ```
+
+---
+
+## DELETE /templates/{templateID}/schedules/{scheduleID}
+
+Delete a schedule from a template.
+
+**Response (204 No Content)**
 
 ---
 

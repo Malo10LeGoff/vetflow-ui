@@ -21,7 +21,8 @@ Login with email and password.
     "clinic_id": "00000000-0000-0000-0000-000000000001",
     "email": "malolegoff@gmail.com",
     "role": "VET",
-    "name": "Malo Le Goff",
+    "first_name": "Malo",
+    "last_name": "Le Goff",
     "created_at": "2024-02-05T10:00:00Z"
   }
 }
@@ -38,16 +39,17 @@ Login with email and password.
 
 ## POST /auth/register
 
-Register a new user.
+Register a new user using a clinic activation code.
 
 **Request:**
 ```json
 {
-  "clinic_id": "00000000-0000-0000-0000-000000000001",
+  "activation_code": "DEMO2024",
   "email": "newuser@clinic.com",
   "password": "securepassword123",
   "role": "ASV",
-  "name": "Jean Dupont"
+  "first_name": "Jean",
+  "last_name": "Dupont"
 }
 ```
 
@@ -60,9 +62,17 @@ Register a new user.
     "clinic_id": "00000000-0000-0000-0000-000000000001",
     "email": "newuser@clinic.com",
     "role": "ASV",
-    "name": "Jean Dupont",
+    "first_name": "Jean",
+    "last_name": "Dupont",
     "created_at": "2024-02-05T10:00:00Z"
   }
+}
+```
+
+**Response (400 Bad Request - Invalid activation code):**
+```json
+{
+  "error": "Invalid activation code"
 }
 ```
 
@@ -91,7 +101,8 @@ Authorization: Bearer <token>
   "clinic_id": "00000000-0000-0000-0000-000000000001",
   "email": "malolegoff@gmail.com",
   "role": "VET",
-  "name": "Malo Le Goff",
+  "first_name": "Malo",
+  "last_name": "Le Goff",
   "created_at": "2024-02-05T10:00:00Z"
 }
 ```

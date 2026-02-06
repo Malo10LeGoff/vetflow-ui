@@ -6,47 +6,50 @@ All endpoints require `Authorization: Bearer <token>` header.
 
 ## GET /materials
 
-Get all materials for the clinic.
+Get materials for the clinic with pagination.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `search` | string | No | - | Search term (matches name) |
+| `page` | int | No | 1 | Page number |
+| `page_size` | int | No | 20 | Items per page (max 100) |
+
+**Examples:**
+- `GET /materials` - returns first 20 materials
+- `GET /materials?search=cathéter` - search by name
+- `GET /materials?page=2&page_size=10` - paginated results
 
 **Response (200 OK):**
 ```json
-[
-  {
-    "id": "00000000-0000-0000-0000-000000000601",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Cathéter IV 14G",
-    "unit": "unité",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000602",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Perfuseur",
-    "unit": "unité",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000603",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Soluté NaCl 0.9%",
-    "unit": "L",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000604",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Soluté Ringer Lactate",
-    "unit": "L",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000605",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Sonde nasogastrique",
-    "unit": "unité",
-    "created_at": "2024-02-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000601",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Cathéter IV 14G",
+      "unit": "unité",
+      "created_at": "2024-02-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000602",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Perfuseur",
+      "unit": "unité",
+      "created_at": "2024-02-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000603",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Soluté NaCl 0.9%",
+      "unit": "L",
+      "created_at": "2024-02-01T00:00:00Z"
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "page_size": 20
+}
 ```
 
 ---

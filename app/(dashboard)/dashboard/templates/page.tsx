@@ -5,6 +5,8 @@ import { templatesApi } from '@/lib/api';
 import { safeString } from '@/lib/utils';
 import { Template } from '@/types';
 
+const PAGE_SIZE = 20;
+
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,10 +22,14 @@ export default function TemplatesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const mountedRef = useRef(true);
   const modalRef = useRef<HTMLDivElement>(null);
   const deleteModalRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(true);
+
+  const totalPages = Math.ceil(totalItems / PAGE_SIZE);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -33,7 +39,7 @@ export default function TemplatesPage() {
     };
   }, []);
 
-  // Debounce search
+  // Debounce search and reset page
   useEffect(() => {
     // Skip the initial render to avoid duplicate API call
     if (initialLoadRef.current) {
@@ -43,6 +49,7 @@ export default function TemplatesPage() {
     const timer = setTimeout(() => {
       if (mountedRef.current) {
         setDebouncedSearch(search);
+        setCurrentPage(1);
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -52,9 +59,10 @@ export default function TemplatesPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await templatesApi.getAll(debouncedSearch);
+      const response = await templatesApi.getAll(debouncedSearch, currentPage, PAGE_SIZE);
       if (mountedRef.current) {
-        setTemplates(data);
+        setTemplates(response.items);
+        setTotalItems(response.total);
       }
     } catch (err) {
       console.error('Error loading templates:', err);
@@ -66,7 +74,7 @@ export default function TemplatesPage() {
         setIsLoading(false);
       }
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, currentPage]);
 
   useEffect(() => {
     loadData();
@@ -362,6 +370,34 @@ export default function TemplatesPage() {
               ))}
             </tbody>
           </table>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+              <div className="text-sm text-gray-500">
+                {totalItems} template{totalItems > 1 ? 's' : ''} au total
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Précédent
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {currentPage} sur {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

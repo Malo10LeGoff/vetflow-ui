@@ -35,6 +35,9 @@ import {
   HospitalizationSummary,
   RowEntry,
   TemplateRow,
+  PaginatedMaterials,
+  PaginatedMedications,
+  PaginatedTemplates,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -257,9 +260,10 @@ export const chartApi = {
 // ============================================
 
 export const materialsApi = {
-  async getAll(search = ''): Promise<Material[]> {
-    const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    return apiCall<Material[]>(`/materials${params}`);
+  async getAll(search = '', page = 1, pageSize = 20): Promise<PaginatedMaterials> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    return apiCall<PaginatedMaterials>(`/materials?${params}`);
   },
 
   async create(data: CreateMaterialRequest): Promise<Material> {
@@ -312,9 +316,10 @@ export const materialsApi = {
 // ============================================
 
 export const medicationsApi = {
-  async getAll(search = ''): Promise<Medication[]> {
-    const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    return apiCall<Medication[]>(`/medications${params}`);
+  async getAll(search = '', page = 1, pageSize = 20): Promise<PaginatedMedications> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    return apiCall<PaginatedMedications>(`/medications?${params}`);
   },
 
   async getById(id: string): Promise<Medication> {
@@ -345,9 +350,10 @@ export const medicationsApi = {
 // ============================================
 
 export const templatesApi = {
-  async getAll(search = ''): Promise<Template[]> {
-    const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    return apiCall<Template[]>(`/templates${params}`);
+  async getAll(search = '', page = 1, pageSize = 20): Promise<PaginatedTemplates> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    return apiCall<PaginatedTemplates>(`/templates?${params}`);
   },
 
   async getById(id: string): Promise<TemplateDetails> {

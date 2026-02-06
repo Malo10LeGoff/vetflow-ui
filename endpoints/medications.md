@@ -6,122 +6,51 @@ All endpoints require `Authorization: Bearer <token>` header.
 
 ## GET /medications
 
-Get all medications for the clinic.
+Get medications for the clinic with pagination.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `search` | string | No | - | Search term (matches name or notes) |
+| `page` | int | No | 1 | Page number |
+| `page_size` | int | No | 20 | Items per page (max 100) |
+
+**Examples:**
+- `GET /medications` - returns first 20 medications
+- `GET /medications?search=flunixine` - search by name or notes
+- `GET /medications?search=AINS&page=1&page_size=10` - paginated search
 
 **Response (200 OK):**
 ```json
-[
-  {
-    "id": "00000000-0000-0000-0000-000000000501",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Flunixine méglumine (Finadyne)",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 0.5,
-    "dose_max_per_kg": 1.1,
-    "dose_unit": "mg/kg",
-    "notes": "AINS - Anti-douleur",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000502",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Phénylbutazone (Equipalazone)",
-    "reference_unit": "g",
-    "dose_min_per_kg": 2.2,
-    "dose_max_per_kg": 4.4,
-    "dose_unit": "mg/kg",
-    "notes": "AINS - Anti-inflammatoire",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000503",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Métamizole (Novalgin)",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 15,
-    "dose_max_per_kg": 30,
-    "dose_unit": "mg/kg",
-    "notes": "Antispasmodique",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000504",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Butorphanol (Torbugesic)",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 0.02,
-    "dose_max_per_kg": 0.1,
-    "dose_unit": "mg/kg",
-    "notes": "Analgésique opioïde",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000505",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Détomidine (Domosedan)",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 10,
-    "dose_max_per_kg": 40,
-    "dose_unit": "µg/kg",
-    "notes": "Sédatif alpha-2",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000506",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Xylazine (Rompun)",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 0.5,
-    "dose_max_per_kg": 1.1,
-    "dose_unit": "mg/kg",
-    "notes": "Sédatif alpha-2",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000507",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Pénicilline procaïne",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 22000,
-    "dose_max_per_kg": 22000,
-    "dose_unit": "UI/kg",
-    "notes": "Antibiotique",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000508",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Gentamicine",
-    "reference_unit": "ml",
-    "dose_min_per_kg": 6.6,
-    "dose_max_per_kg": 6.6,
-    "dose_unit": "mg/kg",
-    "notes": "Antibiotique aminoglycoside",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000509",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Oméprazole (Gastrogard)",
-    "reference_unit": "seringue",
-    "dose_min_per_kg": 1,
-    "dose_max_per_kg": 4,
-    "dose_unit": "mg/kg",
-    "notes": "Anti-ulcéreux",
-    "created_at": "2024-02-01T00:00:00Z"
-  },
-  {
-    "id": "00000000-0000-0000-0000-000000000510",
-    "clinic_id": "00000000-0000-0000-0000-000000000001",
-    "name": "Huile de paraffine",
-    "reference_unit": "L",
-    "dose_min_per_kg": null,
-    "dose_max_per_kg": null,
-    "dose_unit": null,
-    "notes": "Laxatif",
-    "created_at": "2024-02-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000501",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Flunixine méglumine (Finadyne)",
+      "reference_unit": "ml",
+      "dose_min_per_kg": 0.5,
+      "dose_max_per_kg": 1.1,
+      "dose_unit": "mg/kg",
+      "notes": "AINS - Anti-douleur",
+      "created_at": "2024-02-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000502",
+      "clinic_id": "00000000-0000-0000-0000-000000000001",
+      "name": "Phénylbutazone (Equipalazone)",
+      "reference_unit": "g",
+      "dose_min_per_kg": 2.2,
+      "dose_max_per_kg": 4.4,
+      "dose_unit": "mg/kg",
+      "notes": "AINS - Anti-inflammatoire",
+      "created_at": "2024-02-01T00:00:00Z"
+    }
+  ],
+  "total": 10,
+  "page": 1,
+  "page_size": 20
+}
 ```
 
 ---

@@ -345,19 +345,19 @@ export default function PatientFilePage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [hosp, chart, matUsage, mats, meds, usrs] = await Promise.all([
+      const [hosp, chart, matUsage, matsResponse, medsResponse, usrs] = await Promise.all([
         hospitalizationsApi.getById(hospitalizationId),
         chartApi.getChart(hospitalizationId),
         materialsApi.getUsage(hospitalizationId),
-        materialsApi.getAll(),
-        medicationsApi.getAll(),
+        materialsApi.getAll('', 1, 100),
+        medicationsApi.getAll('', 1, 100),
         usersApi.getAll(),
       ]);
       setHospitalization(hosp);
       setChartData(chart);
       setMaterialUsage(matUsage);
-      setMaterials(mats);
-      setMedications(meds);
+      setMaterials(matsResponse.items);
+      setMedications(medsResponse.items);
       setUsers(usrs);
     } catch (error) {
       console.error('Error loading data:', error);
