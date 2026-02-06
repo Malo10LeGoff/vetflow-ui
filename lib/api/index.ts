@@ -38,6 +38,7 @@ import {
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const REQUEST_TIMEOUT_MS = 15000;
 
 // Helper to get auth token
 const getToken = (): string | null => {
@@ -60,21 +61,35 @@ async function apiCall<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      const errorMessage = errorBody.error || errorBody.message || errorBody.detail || `HTTP ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    if (response.status === 204) {
+      return undefined as unknown as T;
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('La requête a expiré. Veuillez réessayer.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
 }
 
 // ============================================
@@ -242,8 +257,9 @@ export const chartApi = {
 // ============================================
 
 export const materialsApi = {
-  async getAll(): Promise<Material[]> {
-    return apiCall<Material[]>('/materials');
+  async getAll(search = ''): Promise<Material[]> {
+    const params = search ? `?search=${encodeURIComponent(search)}` : '';
+    return apiCall<Material[]>(`/materials${params}`);
   },
 
   async create(data: CreateMaterialRequest): Promise<Material> {
@@ -296,8 +312,9 @@ export const materialsApi = {
 // ============================================
 
 export const medicationsApi = {
-  async getAll(): Promise<Medication[]> {
-    return apiCall<Medication[]>('/medications');
+  async getAll(search = ''): Promise<Medication[]> {
+    const params = search ? `?search=${encodeURIComponent(search)}` : '';
+    return apiCall<Medication[]>(`/medications${params}`);
   },
 
   async getById(id: string): Promise<Medication> {
@@ -328,8 +345,9 @@ export const medicationsApi = {
 // ============================================
 
 export const templatesApi = {
-  async getAll(): Promise<Template[]> {
-    return apiCall<Template[]>('/templates');
+  async getAll(search = ''): Promise<Template[]> {
+    const params = search ? `?search=${encodeURIComponent(search)}` : '';
+    return apiCall<Template[]>(`/templates${params}`);
   },
 
   async getById(id: string): Promise<TemplateDetails> {
