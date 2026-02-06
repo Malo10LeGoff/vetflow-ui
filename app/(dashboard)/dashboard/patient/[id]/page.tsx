@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { hospitalizationsApi, chartApi, materialsApi, medicationsApi } from '@/lib/api';
+import { hospitalizationsApi, chartApi, materialsApi, medicationsApi, usersApi } from '@/lib/api';
 import { safeString, safeNumber, safeBool } from '@/lib/utils';
 import {
   Hospitalization,
@@ -13,6 +13,7 @@ import {
   Material,
   Medication,
   RowKind,
+  User,
 } from '@/types';
 import {
   LineChart,
@@ -29,26 +30,17 @@ import {
 const painOptions = ['-', '+', '++', '+++'];
 const attitudeOptions = ['Alerte', 'Calme', 'Agité', 'Douloureux', 'Prostré'];
 
-// Generate hours array for the chart header
-function generateHours(startDate: Date, days: number): Date[] {
-  const hours: Date[] = [];
-  const start = new Date(startDate);
-  start.setMinutes(0, 0, 0);
-
-  for (let d = 0; d < days; d++) {
-    for (let h = 0; h < 24; h++) {
-      const date = new Date(start);
-      date.setDate(date.getDate() + d);
-      date.setHours(h);
-      hours.push(date);
-    }
-  }
-  return hours;
-}
-
 // Format hour for display
 function formatHour(date: Date): string {
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Format date as YYYY-MM-DD in local timezone (for input[type="date"])
+function formatDateForInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // Normalize time string for consistent comparison (removes milliseconds, handles various formats)
@@ -57,11 +49,6 @@ function normalizeTimeKey(time: string | Date): string {
   // Round to the hour and return ISO string without milliseconds
   date.setMinutes(0, 0, 0);
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
-// Format date for display
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
 // Check if a date is the current hour
@@ -80,12 +67,18 @@ function ChartCell({
   row,
   entry,
   onSave,
+  onDelete,
   isCurrentHour: currentHour,
+  isDisabled,
+  authorName,
 }: {
   row: ChartRow;
   entry: ChartEntry | undefined;
   onSave: (value: string | number | boolean) => void;
+  onDelete: () => void;
   isCurrentHour?: boolean;
+  isDisabled?: boolean;
+  authorName?: string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [showObservationModal, setShowObservationModal] = useState(false);
@@ -116,6 +109,7 @@ function ChartCell({
   }, [displayValue]);
 
   const handleDoubleClick = () => {
+    if (isDisabled) return;
     if (row.row_kind === 'TEXT') {
       setShowObservationModal(true);
     } else {
@@ -124,6 +118,7 @@ function ChartCell({
   };
 
   const handleClick = () => {
+    if (isDisabled) return;
     if (row.row_kind === 'TEXT' && displayValue) {
       setShowObservationModal(true);
     }
@@ -132,6 +127,14 @@ function ChartCell({
   const handleBlur = () => {
     setIsEditing(false);
     if (value !== displayValue) {
+      // Handle deletion when value is empty
+      if (value.trim() === '') {
+        if (entry) {
+          onDelete();
+        }
+        return;
+      }
+
       if (row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION') {
         const num = parseFloat(value);
         if (!isNaN(num)) onSave(num);
@@ -155,25 +158,45 @@ function ChartCell({
 
   const handleObservationSave = () => {
     if (value !== displayValue) {
-      onSave(value);
+      if (value.trim() === '' && entry) {
+        onDelete();
+      } else if (value.trim() !== '') {
+        onSave(value);
+      }
     }
     setShowObservationModal(false);
   };
 
   const isTextRow = row.row_kind === 'TEXT';
   const currentHourBg = currentHour ? 'bg-blue-50' : '';
+  const disabledBg = isDisabled ? 'bg-gray-100 text-gray-400' : '';
   const cellClass = `
     px-2 py-1 text-center text-sm border-r border-gray-200 min-w-[120px] ${isTextRow ? 'h-[120px]' : 'h-10'}
-    ${entry?.flagged ? 'bg-red-100 text-red-700 font-medium' : currentHourBg}
-    ${isEditing ? 'bg-blue-100' : 'hover:bg-gray-50 cursor-pointer'}
+    ${isDisabled ? disabledBg : entry?.flagged ? 'bg-red-100 text-red-700 font-medium' : currentHourBg}
+    ${isDisabled ? 'cursor-not-allowed' : isEditing ? 'bg-blue-100' : 'hover:bg-gray-50 cursor-pointer'}
   `;
+
+  // Generate tooltip with author and timestamp
+  const tooltip = useMemo(() => {
+    if (!entry) return undefined;
+    const timestamp = new Date(entry.created_at).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const author = authorName || 'Utilisateur inconnu';
+    return `Modifié par ${author}\nle ${timestamp}`;
+  }, [entry, authorName]);
 
   if (row.row_kind === 'CHECK') {
     const checkVal = safeBool(entry?.check_value);
     return (
       <td
         className={cellClass}
-        onClick={() => onSave(!checkVal)}
+        onClick={() => !isDisabled && onSave(!checkVal)}
+        title={tooltip}
       >
         {checkVal ? '✓' : ''}
       </td>
@@ -184,11 +207,19 @@ function ChartCell({
     const label = safeString(row.label) || '';
     const options = label.toLowerCase().includes('douleur') ? painOptions : attitudeOptions;
     return (
-      <td className={cellClass}>
+      <td className={cellClass} title={tooltip}>
         <select
           value={safeString(entry?.option_id) || ''}
-          onChange={(e) => onSave(e.target.value)}
-          className="w-full bg-transparent text-center text-sm focus:outline-none"
+          onChange={(e) => {
+            if (isDisabled) return;
+            if (e.target.value === '' && entry) {
+              onDelete();
+            } else if (e.target.value !== '') {
+              onSave(e.target.value);
+            }
+          }}
+          disabled={isDisabled}
+          className={`w-full bg-transparent text-center text-sm focus:outline-none ${isDisabled ? 'cursor-not-allowed' : ''}`}
         >
           <option value="">-</option>
           {options.map(opt => (
@@ -207,6 +238,7 @@ function ChartCell({
           className={`${cellClass} align-top`}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
+          title={tooltip}
         >
           <div className="w-full h-full overflow-hidden text-xs text-left whitespace-pre-wrap line-clamp-5">
             {displayValue}
@@ -255,14 +287,14 @@ function ChartCell({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="w-full bg-transparent text-center text-sm focus:outline-none"
+          className="w-full bg-transparent text-center text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       </td>
     );
   }
 
   return (
-    <td className={cellClass} onDoubleClick={handleDoubleClick}>
+    <td className={cellClass} onDoubleClick={handleDoubleClick} title={tooltip}>
       {displayValue}
       {row.row_kind === 'MEDICATION' && safeNumber(entry?.medication_amount) && (
         <span className="text-gray-400 text-xs ml-0.5">{safeString(row.unit)}</span>
@@ -281,12 +313,14 @@ export default function PatientFilePage() {
   const [materialUsage, setMaterialUsage] = useState<MaterialUsageWithMaterial[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
   const [showAddRow, setShowAddRow] = useState(false);
   const [showAddMaterial, setShowAddMaterial] = useState(false);
   const [deleteRowModal, setDeleteRowModal] = useState<ChartRow | null>(null);
   const [chartModalRow, setChartModalRow] = useState<ChartRow | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Date navigation - default to today
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -311,18 +345,20 @@ export default function PatientFilePage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [hosp, chart, matUsage, mats, meds] = await Promise.all([
+      const [hosp, chart, matUsage, mats, meds, usrs] = await Promise.all([
         hospitalizationsApi.getById(hospitalizationId),
         chartApi.getChart(hospitalizationId),
         materialsApi.getUsage(hospitalizationId),
         materialsApi.getAll(),
         medicationsApi.getAll(),
+        usersApi.getAll(),
       ]);
       setHospitalization(hosp);
       setChartData(chart);
       setMaterialUsage(matUsage);
       setMaterials(mats);
       setMedications(meds);
+      setUsers(usrs);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -364,6 +400,12 @@ export default function PatientFilePage() {
     newDate.setDate(newDate.getDate() - 1);
     if (newDate >= dateBounds.min) {
       setSelectedDate(newDate);
+      // Scroll to end of day (rightmost position)
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
+        }
+      }, 0);
     }
   };
 
@@ -372,6 +414,12 @@ export default function PatientFilePage() {
     newDate.setDate(newDate.getDate() + 1);
     if (newDate <= dateBounds.max) {
       setSelectedDate(newDate);
+      // Scroll to start of day (leftmost position)
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft = 0;
+        }
+      }, 0);
     }
   };
 
@@ -380,6 +428,15 @@ export default function PatientFilePage() {
     today.setHours(0, 0, 0, 0);
     if (today >= dateBounds.min && today <= dateBounds.max) {
       setSelectedDate(today);
+      // Scroll to current hour
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          const currentHour = new Date().getHours();
+          const cellWidth = 120; // min-w-[120px]
+          const labelColumnWidth = 200; // approximate width of the label column
+          scrollContainerRef.current.scrollLeft = Math.max(0, (currentHour * cellWidth) - (scrollContainerRef.current.clientWidth / 2) + labelColumnWidth);
+        }
+      }, 0);
     }
   };
 
@@ -404,6 +461,13 @@ export default function PatientFilePage() {
     }
     return map;
   }, [chartData]);
+
+  // Users map for quick lookup
+  const usersMap = useMemo(() => {
+    const map = new Map<string, User>();
+    users.forEach(user => map.set(user.id, user));
+    return map;
+  }, [users]);
 
   const getEntry = useCallback((rowId: string, hour: Date): ChartEntry | undefined => {
     const timeKey = normalizeTimeKey(hour);
@@ -438,6 +502,20 @@ export default function PatientFilePage() {
       setChartData(chart);
     } catch (error) {
       console.error('Error saving entry:', error);
+    }
+  };
+
+  const handleCellDelete = async (row: ChartRow, hour: Date) => {
+    const existingEntry = getEntry(row.id, hour);
+    if (!existingEntry) return;
+
+    try {
+      await chartApi.deleteEntry(hospitalizationId, existingEntry.id);
+      // Reload chart data
+      const chart = await chartApi.getChart(hospitalizationId);
+      setChartData(chart);
+    } catch (error) {
+      console.error('Error deleting entry:', error);
     }
   };
 
@@ -564,26 +642,55 @@ export default function PatientFilePage() {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Date Navigation Controls */}
       <div className="card p-4 mb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Afficher:</label>
-              <select
-                value={daysToShow}
-                onChange={(e) => setDaysToShow(parseInt(e.target.value))}
-                className="input w-auto py-1.5 text-sm"
+          <div className="flex flex-col gap-1">
+            {!isToday && (
+              <button
+                onClick={goToToday}
+                className="text-sm text-blue-600 hover:text-blue-800 transition-colors text-left"
               >
-                <option value={1}>24h</option>
-                <option value={2}>48h</option>
-                <option value={3}>72h</option>
-                <option value={7}>7 jours</option>
-                <option value={14}>14 jours</option>
-                <option value={-1}>Depuis l&apos;admission</option>
-              </select>
+                Aujourd&apos;hui
+              </button>
+            )}
+            {isToday && (
+              <span className="text-sm text-gray-500">Aujourd&apos;hui</span>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goToPreviousDay}
+                disabled={!canGoPrevious}
+                className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <input
+                type="date"
+                value={formatDateForInput(selectedDate)}
+                min={formatDateForInput(dateBounds.min)}
+                max={formatDateForInput(dateBounds.max)}
+                onChange={(e) => {
+                  const newDate = new Date(e.target.value);
+                  newDate.setHours(0, 0, 0, 0);
+                  setSelectedDate(newDate);
+                }}
+                className="input py-1.5 text-sm"
+              />
+              <button
+                onClick={goToNextDay}
+                disabled={!canGoNext}
+                className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAddRow(true)}
@@ -597,15 +704,14 @@ export default function PatientFilePage() {
 
       {/* Chart Table */}
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
+        <div ref={scrollContainerRef} className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left text-sm font-medium text-gray-700 border-b border-r border-gray-200 min-w-[150px]">
                   Paramètre
                 </th>
-                {hours.map((hour, idx) => {
-                  const showDate = idx === 0 || hour.getHours() === 0;
+                {hours.map((hour) => {
                   const isCurrent = isCurrentHour(hour);
                   return (
                     <th
@@ -614,9 +720,6 @@ export default function PatientFilePage() {
                         isCurrent ? 'bg-blue-100 text-blue-800' : 'text-gray-600'
                       }`}
                     >
-                      {showDate && (
-                        <div className={isCurrent ? 'text-blue-600 mb-0.5' : 'text-gray-400 mb-0.5'}>{formatDate(hour)}</div>
-                      )}
                       <div>{formatHour(hour)}</div>
                     </th>
                   );
@@ -656,15 +759,22 @@ export default function PatientFilePage() {
                       </div>
                     </div>
                   </td>
-                  {hours.map((hour) => (
-                    <ChartCell
-                      key={`${row.id}-${hour.toISOString()}`}
-                      row={row}
-                      entry={getEntry(row.id, hour)}
-                      onSave={(value) => handleCellSave(row, hour, value)}
-                      isCurrentHour={isCurrentHour(hour)}
-                    />
-                  ))}
+                  {hours.map((hour) => {
+                    const entry = getEntry(row.id, hour);
+                    const author = entry ? usersMap.get(entry.author_user_id) : undefined;
+                    return (
+                      <ChartCell
+                        key={`${row.id}-${hour.toISOString()}`}
+                        row={row}
+                        entry={entry}
+                        onSave={(value) => handleCellSave(row, hour, value)}
+                        onDelete={() => handleCellDelete(row, hour)}
+                        isCurrentHour={isCurrentHour(hour)}
+                        isDisabled={hour < new Date(hospitalization.admission_at)}
+                        authorName={author ? `${author.first_name} ${author.last_name}` : undefined}
+                      />
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -897,6 +1007,7 @@ export default function PatientFilePage() {
         <SummaryModal
           hospitalizationId={hospitalizationId}
           hospitalization={hospitalization}
+          chartData={chartData}
           onClose={() => setShowSummary(false)}
         />
       )}
@@ -908,10 +1019,12 @@ export default function PatientFilePage() {
 function SummaryModal({
   hospitalizationId,
   hospitalization,
+  chartData,
   onClose,
 }: {
   hospitalizationId: string;
   hospitalization: Hospitalization;
+  chartData: ChartData | null;
   onClose: () => void;
 }) {
   const [summary, setSummary] = useState<{
@@ -920,6 +1033,7 @@ function SummaryModal({
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [notes, setNotes] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -938,17 +1052,127 @@ function SummaryModal({
     return `${days} jour${days > 1 ? 's' : ''} ${hours}h`;
   };
 
+  // Generate hours for tableau horaire
+  const tableauHours = useMemo(() => {
+    const hours: Date[] = [];
+    const start = new Date(hospitalization.admission_at);
+    start.setMinutes(0, 0, 0);
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+
+    const current = new Date(start);
+    while (current <= now) {
+      hours.push(new Date(current));
+      current.setHours(current.getHours() + 1);
+    }
+    return hours;
+  }, [hospitalization.admission_at]);
+
+  // Create entries map for quick lookup
+  const entriesMap = useMemo(() => {
+    const map = new Map<string, ChartEntry>();
+    if (chartData?.entries) {
+      chartData.entries.forEach(entry => {
+        const date = new Date(entry.at_time);
+        date.setMinutes(0, 0, 0);
+        const key = `${entry.chart_row_id}-${date.getTime()}`;
+        map.set(key, entry);
+      });
+    }
+    return map;
+  }, [chartData]);
+
+  // Get numeric rows for charts
+  const numericRows = useMemo(() => {
+    if (!chartData?.rows) return [];
+    return chartData.rows.filter(row => row.row_kind === 'NUMERIC').sort((a, b) => a.sort_order - b.sort_order);
+  }, [chartData]);
+
+  // Generate chart data for a numeric row
+  const getChartDataForRow = useCallback((row: ChartRow) => {
+    const rowEntries = chartData?.entries?.filter(e => e.chart_row_id === row.id) || [];
+    if (rowEntries.length === 0) return { data: [], hasData: false };
+
+    // Find the time range for this row's entries
+    let minTime = new Date(rowEntries[0].at_time);
+    let maxTime = new Date(rowEntries[0].at_time);
+    rowEntries.forEach(entry => {
+      const time = new Date(entry.at_time);
+      if (time < minTime) minTime = time;
+      if (time > maxTime) maxTime = time;
+    });
+
+    // Start from admission
+    const start = new Date(hospitalization.admission_at);
+    start.setMinutes(0, 0, 0);
+    maxTime.setMinutes(0, 0, 0);
+
+    // Create entries map
+    const rowEntriesMap = new Map<number, ChartEntry>();
+    rowEntries.forEach(entry => {
+      const date = new Date(entry.at_time);
+      date.setMinutes(0, 0, 0);
+      rowEntriesMap.set(date.getTime(), entry);
+    });
+
+    // Generate hours from admission to last entry
+    const hours: Date[] = [];
+    const current = new Date(start);
+    while (current <= maxTime) {
+      hours.push(new Date(current));
+      current.setHours(current.getHours() + 1);
+    }
+
+    const data = hours.map(hour => {
+      const entry = rowEntriesMap.get(hour.getTime());
+      const numericValue = entry ? safeNumber(entry.numeric_value) : null;
+      return {
+        time: hour.toLocaleString('fr-FR', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        value: numericValue,
+        flagged: entry ? safeBool(entry.flagged) ?? false : false,
+      };
+    });
+
+    return { data, hasData: data.some(d => d.value !== null) };
+  }, [chartData, hospitalization.admission_at]);
+
+  // Get display value for an entry
+  const getEntryDisplay = (row: ChartRow, entry: ChartEntry | undefined): string => {
+    if (!entry) return '';
+    switch (row.row_kind) {
+      case 'NUMERIC':
+        const numVal = safeNumber(entry.numeric_value);
+        return numVal !== null ? numVal.toString() : '';
+      case 'OPTION':
+        return safeString(entry.option_id) || '';
+      case 'CHECK':
+        return safeBool(entry.check_value) ? '✓' : '';
+      case 'TEXT':
+        return safeString(entry.text_value) || '';
+      case 'MEDICATION':
+        const medVal = safeNumber(entry.medication_amount);
+        return medVal !== null ? `${medVal}` : '';
+      default:
+        return '';
+    }
+  };
+
   const handleDownloadPDF = async () => {
     if (!contentRef.current) return;
     setIsDownloading(true);
     try {
       const html2pdf = (await import('html2pdf.js')).default;
       const opt = {
-        margin: 10,
+        margin: 5,
         filename: `resume-${hospitalization.horse.name}-${new Date().toISOString().split('T')[0]}.pdf`,
         image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const }
       };
       await html2pdf().set(opt).from(contentRef.current).save();
     } catch (error) {
@@ -960,7 +1184,7 @@ function SummaryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="card p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto">
+      <div className="card p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Résumé du séjour</h3>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
@@ -1050,6 +1274,143 @@ function SummaryModal({
             </div>
           </>
         )}
+
+        {/* Notes */}
+        <div className="mb-4">
+          <h4 className="font-medium text-gray-900 mb-2">Notes</h4>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Ajoutez des notes ou observations à inclure dans le PDF..."
+            className="input w-full min-h-[100px] resize-y"
+            rows={4}
+          />
+        </div>
+
+        {/* Numeric Charts */}
+        {numericRows.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <h4 className="font-medium text-gray-900 mb-4">Graphiques des valeurs numériques</h4>
+            <div className="space-y-6">
+              {numericRows.map(row => {
+                const { data, hasData } = getChartDataForRow(row);
+                if (!hasData) return null;
+
+                const values = data.map(d => d.value).filter((v): v is number => v !== null);
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                const padding = (max - min) * 0.1 || 5;
+                const yDomain = [Math.floor(min - padding), Math.ceil(max + padding)];
+                const unit = safeString(row.unit) || '';
+                const flaggedPoints = data.filter(d => d.flagged && d.value !== null);
+
+                return (
+                  <div key={row.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="mb-2">
+                      <h5 className="font-medium text-gray-800">{safeString(row.label)}</h5>
+                      {unit && <p className="text-xs text-gray-500">Unité: {unit}</p>}
+                    </div>
+                    <div style={{ width: '100%', height: 200 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data} margin={{ top: 10, right: 30, left: 10, bottom: 30 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 10 }}
+                            angle={-45}
+                            textAnchor="end"
+                            height={60}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            domain={yDomain}
+                            tick={{ fontSize: 10 }}
+                            tickFormatter={(val) => `${val}${unit ? ` ${unit}` : ''}`}
+                          />
+                          <Tooltip
+                            formatter={(value) => [`${value} ${unit}`, safeString(row.label)]}
+                            labelStyle={{ fontWeight: 'bold' }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#2563eb"
+                            strokeWidth={2}
+                            dot={{ fill: '#2563eb', r: 3 }}
+                            activeDot={{ r: 5 }}
+                            connectNulls
+                          />
+                          {flaggedPoints.map((point, idx) => (
+                            <ReferenceDot
+                              key={idx}
+                              x={point.time}
+                              y={point.value!}
+                              r={6}
+                              fill="#dc2626"
+                              stroke="#fff"
+                              strokeWidth={2}
+                            />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tableau horaire */}
+        {chartData && chartData.rows && chartData.rows.length > 0 && tableauHours.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <h4 className="font-medium text-gray-900 mb-2">Tableau horaire</h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Du {new Date(hospitalization.admission_at).toLocaleDateString('fr-FR')} au {new Date().toLocaleDateString('fr-FR')}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="text-xs border-collapse" style={{ fontSize: '8px' }}>
+                <thead>
+                  <tr>
+                    <th className="border border-gray-300 p-1 bg-gray-100 text-left sticky left-0 min-w-[100px]">
+                      Paramètre
+                    </th>
+                    {tableauHours.map((hour, idx) => (
+                      <th key={idx} className="border border-gray-300 p-1 bg-gray-100 text-center whitespace-nowrap">
+                        {hour.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                        <br />
+                        {hour.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {chartData.rows.sort((a, b) => a.sort_order - b.sort_order).map((row) => (
+                    <tr key={row.id}>
+                      <td className="border border-gray-300 p-1 bg-gray-50 font-medium sticky left-0">
+                        {safeString(row.label)}
+                        {safeString(row.unit) && <span className="text-gray-400 ml-1">({safeString(row.unit)})</span>}
+                      </td>
+                      {tableauHours.map((hour, idx) => {
+                        const entry = entriesMap.get(`${row.id}-${hour.getTime()}`);
+                        const displayValue = getEntryDisplay(row, entry);
+                        const isFlagged = entry && safeBool(entry.flagged);
+                        return (
+                          <td
+                            key={idx}
+                            className={`border border-gray-300 p-1 text-center ${isFlagged ? 'bg-red-100 text-red-700 font-bold' : ''}`}
+                          >
+                            {displayValue}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         </div>
 
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
@@ -1097,21 +1458,37 @@ function NumericChartModal({
   admissionDate: string;
   onClose: () => void;
 }) {
-  // Generate all hours from admission to now
+  // Find the last entry time
+  const lastEntryTime = useMemo(() => {
+    if (entries.length === 0) return null;
+    let maxTime = new Date(entries[0].at_time);
+    entries.forEach(entry => {
+      const entryTime = new Date(entry.at_time);
+      if (entryTime > maxTime) {
+        maxTime = entryTime;
+      }
+    });
+    maxTime.setMinutes(0, 0, 0);
+    return maxTime;
+  }, [entries]);
+
+  // Generate all hours from admission to the last entry (or now if no entries)
   const allHours = useMemo(() => {
     const hours: Date[] = [];
     const start = new Date(admissionDate);
     start.setMinutes(0, 0, 0);
-    const now = new Date();
-    now.setMinutes(0, 0, 0);
+
+    // Use the last entry time, or now if there are no entries
+    const end = lastEntryTime || new Date();
+    end.setMinutes(0, 0, 0);
 
     const current = new Date(start);
-    while (current <= now) {
+    while (current <= end) {
       hours.push(new Date(current));
       current.setHours(current.getHours() + 1);
     }
     return hours;
-  }, [admissionDate]);
+  }, [admissionDate, lastEntryTime]);
 
   // Create a map of entries by hour (using getTime() for reliable comparison)
   const entriesMap = useMemo(() => {
