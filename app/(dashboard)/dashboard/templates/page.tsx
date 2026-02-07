@@ -207,19 +207,13 @@ export default function TemplatesPage() {
     setIsSubmitting(true);
     setFormError(null);
     try {
-      await templatesApi.create({ name: formData.name.trim() });
-      if (mountedRef.current) {
-        loadData();
-        setShowModal(false);
-        resetForm();
-      }
+      const newTemplate = await templatesApi.create({ name: formData.name.trim() });
+      // Navigate to the edit page for the new template
+      router.push(`/dashboard/templates/${newTemplate.id}`);
     } catch (err) {
       console.error('Error saving template:', err);
       if (mountedRef.current) {
         setFormError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde');
-      }
-    } finally {
-      if (mountedRef.current) {
         setIsSubmitting(false);
       }
     }
