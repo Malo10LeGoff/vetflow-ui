@@ -241,9 +241,6 @@ export default function LoginPage() {
                     className="input font-mono uppercase"
                     placeholder="Ex: DEMO2024"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Ce code vous a été fourni par votre clinique
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
