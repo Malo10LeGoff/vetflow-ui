@@ -77,13 +77,7 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err) {
       if (err instanceof Error) {
-        if (err.message.includes('activation')) {
-          setError('Code d\'activation invalide');
-        } else if (err.message.includes('exists')) {
-          setError('Un compte existe déjà avec cet email');
-        } else {
-          setError('Une erreur est survenue lors de l\'inscription');
-        }
+        setError(err.message);
       } else {
         setError('Une erreur est survenue lors de l\'inscription');
       }
