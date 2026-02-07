@@ -11,13 +11,13 @@ Get materials for the clinic with pagination.
 **Query Parameters:**
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `search` | string | No | - | Search term (matches name) |
+| `search` | string | No | - | Search term (matches name or notes) |
 | `page` | int | No | 1 | Page number |
 | `page_size` | int | No | 20 | Items per page (max 100) |
 
 **Examples:**
 - `GET /materials` - returns first 20 materials
-- `GET /materials?search=cathéter` - search by name
+- `GET /materials?search=cathéter` - search by name or notes
 - `GET /materials?page=2&page_size=10` - paginated results
 
 **Response (200 OK):**
@@ -29,6 +29,7 @@ Get materials for the clinic with pagination.
       "clinic_id": "00000000-0000-0000-0000-000000000001",
       "name": "Cathéter IV 14G",
       "unit": "unité",
+      "notes": "Pour perfusion IV",
       "created_at": "2024-02-01T00:00:00Z"
     },
     {
@@ -36,6 +37,7 @@ Get materials for the clinic with pagination.
       "clinic_id": "00000000-0000-0000-0000-000000000001",
       "name": "Perfuseur",
       "unit": "unité",
+      "notes": null,
       "created_at": "2024-02-01T00:00:00Z"
     },
     {
@@ -43,6 +45,7 @@ Get materials for the clinic with pagination.
       "clinic_id": "00000000-0000-0000-0000-000000000001",
       "name": "Soluté NaCl 0.9%",
       "unit": "L",
+      "notes": "Solution saline isotonique",
       "created_at": "2024-02-01T00:00:00Z"
     }
   ],
@@ -62,9 +65,17 @@ Create a new material.
 ```json
 {
   "name": "Tube de prélèvement EDTA",
-  "unit": "unité"
+  "unit": "unité",
+  "notes": "Pour analyses sanguines"
 }
 ```
+
+**Request Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Material name |
+| `unit` | string | Yes | Unit of measurement |
+| `notes` | string | No | Additional notes |
 
 **Response (201 Created):**
 ```json
@@ -73,6 +84,7 @@ Create a new material.
   "clinic_id": "00000000-0000-0000-0000-000000000001",
   "name": "Tube de prélèvement EDTA",
   "unit": "unité",
+  "notes": "Pour analyses sanguines",
   "created_at": "2024-02-05T14:00:00Z"
 }
 ```
@@ -87,7 +99,8 @@ Update a material.
 ```json
 {
   "name": "Tube EDTA 5ml",
-  "unit": "unité"
+  "unit": "unité",
+  "notes": "Pour analyses sanguines - 5ml"
 }
 ```
 
@@ -98,6 +111,7 @@ Update a material.
   "clinic_id": "00000000-0000-0000-0000-000000000001",
   "name": "Tube EDTA 5ml",
   "unit": "unité",
+  "notes": "Pour analyses sanguines - 5ml",
   "created_at": "2024-02-05T14:00:00Z"
 }
 ```

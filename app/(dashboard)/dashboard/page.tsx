@@ -1,53 +1,81 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { hospitalizationsApi } from '@/lib/api';
-import { Hospitalization, HospitalizationCategory } from '@/types';
-import { safeNumber } from '@/lib/utils';
+import { hospitalizationsApi, categoriesApi, assignmentsApi } from '@/lib/api';
+import { Hospitalization, Category, AssignmentWithUser } from '@/types';
+import CategoryManagementModal from '@/components/CategoryManagementModal';
 
-const categoryLabels: Record<HospitalizationCategory, string> = {
-  colique: 'Colique',
-  chirurgie: 'Chirurgie',
-  soins_intensifs: 'Soins intensifs',
-  poulain: 'Poulain',
-  castration: 'Castration',
-  autre: 'Autre',
-};
-
-const categoryColors: Record<HospitalizationCategory, string> = {
-  colique: 'badge-yellow',
-  chirurgie: 'badge-blue',
-  soins_intensifs: 'badge-red',
-  poulain: 'badge-green',
-  castration: 'badge-gray',
-  autre: 'badge-gray',
-};
-
-type SortOption = 'urgence' | 'duree' | 'prochain_acte';
+type SortOption = 'duree' | 'prochain_acte';
 
 export default function DashboardPage() {
+  const [categories, setCategories] = useState<Category[]>([]);
   const [hospitalizations, setHospitalizations] = useState<Hospitalization[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [categoryFilter, setCategoryFilter] = useState<HospitalizationCategory | 'all'>('all');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<SortOption>('prochain_acte');
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [archiveModal, setArchiveModal] = useState<Hospitalization | null>(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [assignmentsMap, setAssignmentsMap] = useState<Map<string, AssignmentWithUser[]>>(new Map());
 
-  useEffect(() => {
-    loadData();
+  const getCategoryColor = useCallback((name: string): string => {
+    const category = categories.find(c => c.name === name);
+    return category?.color || '#6B7280';
+  }, [categories]);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await categoriesApi.getAll();
+      // Handle both array and paginated response
+      const items = Array.isArray(response) ? response : (response.items || []);
+      setCategories(items);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+    }
   }, []);
 
-  const loadData = async () => {
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const loadData = useCallback(async () => {
     try {
-      const data = await hospitalizationsApi.getActive();
-      setHospitalizations(data);
+      const data = await hospitalizationsApi.getActive(debouncedSearch);
+      const items = data.items || [];
+      setHospitalizations(items);
+
+      // Load assignments for all hospitalizations
+      const assignmentPromises = items.map(h =>
+        assignmentsApi.getAssignments(h.id).catch(() => [])
+      );
+      const allAssignments = await Promise.all(assignmentPromises);
+      const map = new Map<string, AssignmentWithUser[]>();
+      items.forEach((h, index) => {
+        map.set(h.id, allAssignments[index]);
+      });
+      setAssignmentsMap(map);
     } catch (error) {
       console.error('Error loading hospitalizations:', error);
+      setHospitalizations([]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleArchive = async (hosp: Hospitalization) => {
     setArchivingId(hosp.id);
@@ -63,7 +91,7 @@ export default function DashboardPage() {
   };
 
   const filteredAndSortedData = useMemo(() => {
-    let data = [...hospitalizations];
+    let data = [...(hospitalizations || [])];
 
     // Filter by category
     if (categoryFilter !== 'all') {
@@ -73,10 +101,6 @@ export default function DashboardPage() {
     // Sort
     data.sort((a, b) => {
       switch (sortBy) {
-        case 'urgence':
-          // Soins intensifs first, then colique, etc.
-          const urgencyOrder: HospitalizationCategory[] = ['soins_intensifs', 'colique', 'chirurgie', 'poulain', 'castration', 'autre'];
-          return urgencyOrder.indexOf(a.category) - urgencyOrder.indexOf(b.category);
         case 'duree':
           // Longest first
           const aDuration = a.duration_days * 24 + a.duration_hours;
@@ -84,10 +108,10 @@ export default function DashboardPage() {
           return bDuration - aDuration;
         case 'prochain_acte':
           // Soonest first, null at the end
-          if (!a.next_scheduled_at && !b.next_scheduled_at) return 0;
-          if (!a.next_scheduled_at) return 1;
-          if (!b.next_scheduled_at) return -1;
-          return new Date(a.next_scheduled_at).getTime() - new Date(b.next_scheduled_at).getTime();
+          if (!a.next_schedule?.at && !b.next_schedule?.at) return 0;
+          if (!a.next_schedule?.at) return 1;
+          if (!b.next_schedule?.at) return -1;
+          return new Date(a.next_schedule.at).getTime() - new Date(b.next_schedule.at).getTime();
         default:
           return 0;
       }
@@ -102,23 +126,32 @@ export default function DashboardPage() {
     return `${days}j ${hours}h`;
   };
 
-  const formatNextScheduled = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
+  const formatNextScheduled = (nextSchedule: { at: string; label: string } | null) => {
+    if (!nextSchedule) return '-';
+    const date = new Date(nextSchedule.at);
     const now = new Date();
     const diffMs = date.getTime() - now.getTime();
+    const diffMins = Math.round(diffMs / (1000 * 60));
     const diffHours = Math.round(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffHours < 0) {
-      return <span className="text-red-600 font-medium">En retard</span>;
+    let timeText: React.ReactNode;
+    if (diffMins < 0) {
+      timeText = <span className="text-red-600">en retard</span>;
+    } else if (diffMins < 60) {
+      timeText = <span className="text-orange-600">dans {diffMins}min</span>;
+    } else if (diffHours < 24) {
+      timeText = <span>dans {diffHours}h</span>;
+    } else {
+      timeText = <span>dans {diffDays}j</span>;
     }
-    if (diffHours < 1) {
-      return <span className="text-orange-600 font-medium">Imminent</span>;
-    }
-    if (diffHours < 24) {
-      return `Dans ${diffHours}h`;
-    }
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+    return (
+      <>
+        <span className="font-medium">{nextSchedule.label}</span>
+        <span className="text-gray-500 ml-1">({timeText})</span>
+      </>
+    );
   };
 
   if (isLoading) {
@@ -139,7 +172,7 @@ export default function DashboardPage() {
             {hospitalizations.length} cheval{hospitalizations.length > 1 ? 'aux' : ''} hospitalisé{hospitalizations.length > 1 ? 's' : ''}
           </p>
         </div>
-        <Link href="/dashboard/nouveau" className="btn-primary">
+        <Link href="/dashboard/new" className="btn-primary">
           <span className="flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -152,18 +185,57 @@ export default function DashboardPage() {
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
+            <div className="relative w-full">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Rechercher un patient..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="input pl-9 py-1.5 text-sm w-full"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">Catégorie:</label>
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as HospitalizationCategory | 'all')}
+              onChange={(e) => setCategoryFilter(e.target.value)}
               className="input w-auto py-1.5 text-sm"
             >
               <option value="all">Toutes</option>
-              {Object.entries(categoryLabels).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.name}>{cat.name}</option>
               ))}
             </select>
+            <button
+              onClick={() => setShowCategoryModal(true)}
+              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+              title="Gérer les catégories"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">Trier par:</label>
@@ -172,8 +244,7 @@ export default function DashboardPage() {
               onChange={(e) => setSortBy(e.target.value as SortOption)}
               className="input w-auto py-1.5 text-sm"
             >
-              <option value="prochain_acte">Prochain acte</option>
-              <option value="urgence">Urgence</option>
+              <option value="prochain_acte">Date de prochain suivi</option>
               <option value="duree">Durée d&apos;hospitalisation</option>
             </select>
           </div>
@@ -194,7 +265,7 @@ export default function DashboardPage() {
               <p className="text-gray-500 mb-6 max-w-sm mx-auto">
                 Votre tableau de bord est vide. Commencez par admettre un nouveau cheval en hospitalisation.
               </p>
-              <Link href="/dashboard/nouveau" className="btn-primary inline-flex items-center gap-2">
+              <Link href="/dashboard/new" className="btn-primary inline-flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
@@ -225,11 +296,14 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="text-lg font-semibold text-gray-900">{hosp.horse.name}</h3>
-                    <span className={categoryColors[hosp.category]}>
-                      {categoryLabels[hosp.category]}
+                    <span
+                      className="px-2 py-0.5 text-xs font-medium rounded-full"
+                      style={{ backgroundColor: `${getCategoryColor(hosp.category)}20`, color: getCategoryColor(hosp.category) }}
+                    >
+                      {hosp.category}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500">Propriétaire</span>
                       <p className="font-medium">{hosp.owner.full_name}</p>
@@ -237,12 +311,9 @@ export default function DashboardPage() {
                     <div>
                       <span className="text-gray-500">Âge</span>
                       <p className="font-medium">
-                        {(() => {
-                          const ageYears = safeNumber(hosp.horse.age_years) ?? 0;
-                          return ageYears < 1
-                            ? `${Math.round(ageYears * 12)} mois`
-                            : `${ageYears} ans`;
-                        })()}
+                        {hosp.horse.age_years < 1
+                          ? `${Math.round(hosp.horse.age_years * 12)} mois`
+                          : `${hosp.horse.age_years} ans`}
                       </p>
                     </div>
                     <div>
@@ -250,8 +321,18 @@ export default function DashboardPage() {
                       <p className="font-medium">{formatDuration(hosp.duration_days, hosp.duration_hours)}</p>
                     </div>
                     <div>
-                      <span className="text-gray-500">Prochain acte</span>
-                      <p className="font-medium">{formatNextScheduled(hosp.next_scheduled_at)}</p>
+                      <span className="text-gray-500">Vétérinaire</span>
+                      <p className="font-medium">
+                        {(() => {
+                          const assignments = assignmentsMap.get(hosp.id) || [];
+                          if (assignments.length === 0) return <span className="text-gray-400">Non assigné</span>;
+                          return assignments.map(a => `${a.user.first_name} ${a.user.last_name}`).join(', ');
+                        })()}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Prochain suivi</span>
+                      <p className="font-medium">{formatNextScheduled(hosp.next_schedule)}</p>
                     </div>
                   </div>
                 </div>
@@ -302,8 +383,11 @@ export default function DashboardPage() {
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <div className="flex items-center gap-3 mb-2">
                 <span className="text-lg font-medium text-gray-900">{archiveModal.horse.name}</span>
-                <span className={categoryColors[archiveModal.category]}>
-                  {categoryLabels[archiveModal.category]}
+                <span
+                  className="px-2 py-0.5 text-xs font-medium rounded-full"
+                  style={{ backgroundColor: `${getCategoryColor(archiveModal.category)}20`, color: getCategoryColor(archiveModal.category) }}
+                >
+                  {archiveModal.category}
                 </span>
               </div>
               <div className="text-sm text-gray-600">
@@ -333,6 +417,13 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Category Management Modal */}
+      <CategoryManagementModal
+        isOpen={showCategoryModal}
+        onClose={() => setShowCategoryModal(false)}
+        onCategoriesChange={loadCategories}
+      />
     </div>
   );
 }

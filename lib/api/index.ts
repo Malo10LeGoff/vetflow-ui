@@ -8,6 +8,7 @@ import {
   LoginResponse,
   RegisterRequest,
   UpdateUserRequest,
+  AssignmentWithUser,
   Hospitalization,
   CreateHospitalizationRequest,
   ArchivedHospitalizationsResponse,
@@ -38,6 +39,11 @@ import {
   PaginatedMaterials,
   PaginatedMedications,
   PaginatedTemplates,
+  PaginatedUsers,
+  PaginatedHospitalizations,
+  Category,
+  CreateCategoryRequest,
+  PaginatedCategories,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -124,8 +130,10 @@ export const authApi = {
 // ============================================
 
 export const usersApi = {
-  async getAll(): Promise<User[]> {
-    return apiCall<User[]>('/users');
+  async getAll(search = '', page = 1, pageSize = 100): Promise<PaginatedUsers> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    return apiCall<PaginatedUsers>(`/users?${params}`);
   },
 
   async getById(id: string): Promise<User> {
@@ -149,13 +157,16 @@ export const usersApi = {
 // ============================================
 
 export const hospitalizationsApi = {
-  async getActive(): Promise<Hospitalization[]> {
-    return apiCall<Hospitalization[]>('/hospitalizations');
-  },
-
-  async getArchived(page = 1, pageSize = 10, search = ''): Promise<ArchivedHospitalizationsResponse> {
+  async getActive(search = '', page = 1, pageSize = 100): Promise<PaginatedHospitalizations> {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (search) params.set('search', search);
+    return apiCall<PaginatedHospitalizations>(`/hospitalizations?${params}`);
+  },
+
+  async getArchived(page = 1, pageSize = 10, search = '', category = ''): Promise<ArchivedHospitalizationsResponse> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    if (category) params.set('category', category);
     return apiCall<ArchivedHospitalizationsResponse>(`/hospitalizations/archived?${params}`);
   },
 
@@ -187,6 +198,29 @@ export const hospitalizationsApi = {
 
   async getSummary(id: string): Promise<HospitalizationSummary> {
     return apiCall<HospitalizationSummary>(`/hospitalizations/${id}/summary`);
+  },
+};
+
+// ============================================
+// ASSIGNMENTS API
+// ============================================
+
+export const assignmentsApi = {
+  async getAssignments(hospitalizationId: string): Promise<AssignmentWithUser[]> {
+    return apiCall<AssignmentWithUser[]>(`/hospitalizations/${hospitalizationId}/assignments`);
+  },
+
+  async assign(hospitalizationId: string, userId: string): Promise<AssignmentWithUser> {
+    return apiCall<AssignmentWithUser>(`/hospitalizations/${hospitalizationId}/assignments`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
+
+  async unassign(hospitalizationId: string, userId: string): Promise<void> {
+    return apiCall<void>(`/hospitalizations/${hospitalizationId}/assignments/${userId}`, {
+      method: 'DELETE',
+    });
   },
 };
 
@@ -396,6 +430,10 @@ export const templatesApi = {
     });
   },
 
+  async deleteSchedule(templateId: string, scheduleId: string): Promise<void> {
+    return apiCall<void>(`/templates/${templateId}/schedules/${scheduleId}`, { method: 'DELETE' });
+  },
+
   async addMaterial(templateId: string, data: CreateTemplateMaterialRequest): Promise<void> {
     await apiCall(`/templates/${templateId}/materials`, {
       method: 'POST',
@@ -405,5 +443,33 @@ export const templatesApi = {
 
   async removeMaterial(templateId: string, materialId: string): Promise<void> {
     return apiCall<void>(`/templates/${templateId}/materials/${materialId}`, { method: 'DELETE' });
+  },
+};
+
+// ============================================
+// CATEGORIES API
+// ============================================
+
+export const categoriesApi = {
+  async getAll(): Promise<PaginatedCategories> {
+    return apiCall<PaginatedCategories>('/categories');
+  },
+
+  async create(data: CreateCategoryRequest): Promise<Category> {
+    return apiCall<Category>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async update(id: string, data: CreateCategoryRequest): Promise<Category> {
+    return apiCall<Category>(`/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiCall<void>(`/categories/${id}`, { method: 'DELETE' });
   },
 };

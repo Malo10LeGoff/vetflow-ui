@@ -6,13 +6,26 @@ All endpoints require `Authorization: Bearer <token>` header.
 
 ## GET /hospitalizations
 
-Get all active hospitalizations (dashboard).
+Get active hospitalizations (dashboard) with search and pagination.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `search` | string | No | - | Search term (matches horse name) |
+| `page` | int | No | 1 | Page number |
+| `page_size` | int | No | 20 | Items per page (max 100) |
+
+**Examples:**
+- `GET /hospitalizations` - returns first 20 active hospitalizations
+- `GET /hospitalizations?search=VULCAIN` - search by horse name
+- `GET /hospitalizations?page=2&page_size=10` - paginated results
 
 **Response (200 OK):**
 ```json
-[
-  {
-    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+{
+  "items": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "horse": {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "clinic_id": "00000000-0000-0000-0000-000000000001",
@@ -32,11 +45,17 @@ Get all active hospitalizations (dashboard).
     },
     "category": "colique",
     "admission_at": "2024-02-04T08:00:00Z",
+    "admission_note": "Colique depuis 6h. Douleur modérée, transit ralenti. RAS cardio-respi.",
     "status": "ACTIVE",
     "archived_at": null,
     "duration_days": 1,
     "duration_hours": 6,
-    "next_scheduled_at": "2024-02-05T16:00:00Z"
+    "next_schedule": {
+      "at": "2024-02-05T16:00:00Z",
+      "label": "Température",
+      "row_kind": "NUMERIC",
+      "unit": "°C"
+    }
   },
   {
     "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
@@ -59,30 +78,44 @@ Get all active hospitalizations (dashboard).
     },
     "category": "chirurgie",
     "admission_at": "2024-02-03T14:00:00Z",
+    "admission_note": "Castration programmée. Examen pré-op OK.",
     "status": "ACTIVE",
     "archived_at": null,
     "duration_days": 2,
     "duration_hours": 0,
-    "next_scheduled_at": "2024-02-05T18:00:00Z"
+    "next_schedule": {
+      "at": "2024-02-05T18:00:00Z",
+      "label": "Gentamicine",
+      "row_kind": "MEDICATION",
+      "unit": "ml"
+    }
   }
-]
+  ],
+  "total": 2,
+  "page": 1,
+  "page_size": 20
+}
 ```
 
 ---
 
 ## GET /hospitalizations/archived
 
-Get archived hospitalizations with pagination and search.
+Get archived hospitalizations with pagination, search, and category filter.
 
 **Query Parameters:**
-- `page` (default: 1)
-- `page_size` (default: 10, max: 100)
-- `search` (optional, searches horse name)
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `search` | string | No | - | Search term (matches horse name) |
+| `category` | string | No | - | Filter by category name |
+| `page` | int | No | 1 | Page number |
+| `page_size` | int | No | 10 | Items per page (max 100) |
 
-**Request:**
-```
-GET /hospitalizations/archived?page=1&page_size=10&search=VULCAIN
-```
+**Examples:**
+- `GET /hospitalizations/archived` - returns all archived
+- `GET /hospitalizations/archived?search=VULCAIN` - search by horse name
+- `GET /hospitalizations/archived?category=Colique` - filter by category
+- `GET /hospitalizations/archived?search=VULCAIN&category=Colique` - combined filters
 
 **Response (200 OK):**
 ```json
@@ -106,7 +139,7 @@ GET /hospitalizations/archived?page=1&page_size=10&search=VULCAIN
       "archived_at": "2024-01-20T16:00:00Z",
       "duration_days": 5,
       "duration_hours": 8,
-      "next_scheduled_at": null
+      "next_schedule": null
     }
   ],
   "total": 1,
@@ -144,11 +177,17 @@ Get a single hospitalization with details.
   },
   "category": "colique",
   "admission_at": "2024-02-04T08:00:00Z",
+  "admission_note": "Colique depuis 6h. Douleur modérée, transit ralenti. RAS cardio-respi.",
   "status": "ACTIVE",
   "archived_at": null,
   "duration_days": 1,
   "duration_hours": 6,
-  "next_scheduled_at": "2024-02-05T16:00:00Z"
+  "next_schedule": {
+    "at": "2024-02-05T16:00:00Z",
+    "label": "Température",
+    "row_kind": "NUMERIC",
+    "unit": "°C"
+  }
 }
 ```
 
@@ -169,6 +208,7 @@ Create a new hospitalization (admission).
   "weight_kg": 550,
   "category": "colique",
   "admission_at": "2024-02-05T14:30:00Z",
+  "admission_note": "Colique depuis 4h, douleur intense. Distension abdominale, absence de bruits intestinaux.",
   "template_id": "00000000-0000-0000-0000-000000000101"
 }
 ```
@@ -206,11 +246,17 @@ Create a new hospitalization (admission).
   },
   "category": "colique",
   "admission_at": "2024-02-05T14:30:00Z",
+  "admission_note": "Colique depuis 4h, douleur intense. Distension abdominale, absence de bruits intestinaux.",
   "status": "ACTIVE",
   "archived_at": null,
   "duration_days": 0,
   "duration_hours": 0,
-  "next_scheduled_at": "2024-02-05T16:30:00Z"
+  "next_schedule": {
+    "at": "2024-02-05T16:30:00Z",
+    "label": "Température",
+    "row_kind": "NUMERIC",
+    "unit": "°C"
+  }
 }
 ```
 
@@ -250,6 +296,35 @@ Update horse weight during hospitalization.
 ```json
 {
   "weight_kg": 515
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "updated"
+}
+```
+
+---
+
+## PUT /hospitalizations/{hospitalizationID}/admission-note
+
+Update the admission note (initial clinical summary).
+
+The admission note is a free-text clinical narrative written at admission time. It provides context for the hospitalization (reason for admission, main symptoms, baseline condition).
+
+**Request:**
+```json
+{
+  "admission_note": "Colique depuis 6h. Douleur modérée à sévère. Transit ralenti. FC 48, FR 20. Muqueuses roses."
+}
+```
+
+**To clear the note:**
+```json
+{
+  "admission_note": null
 }
 ```
 

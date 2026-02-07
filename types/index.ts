@@ -35,6 +35,20 @@ export interface UpdateUserRequest {
   last_name: string;
 }
 
+// Assignment
+export interface Assignment {
+  id: string;
+  clinic_id: string;
+  hospitalization_id: string;
+  user_id: string;
+  assigned_at: string;
+}
+
+export interface AssignmentWithUser {
+  assignment: Assignment;
+  user: User;
+}
+
 // Horse & Owner
 export interface Horse {
   id: string;
@@ -55,21 +69,43 @@ export interface Owner {
   created_at: string;
 }
 
+// Category
+export interface Category {
+  id: string;
+  clinic_id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface CreateCategoryRequest {
+  name: string;
+  color: string;
+}
+
 // Hospitalization
 export type HospitalizationStatus = 'ACTIVE' | 'ARCHIVED';
-export type HospitalizationCategory = 'colique' | 'chirurgie' | 'soins_intensifs' | 'poulain' | 'castration' | 'autre';
+
+export interface NextSchedule {
+  at: string;
+  label: string;
+  row_kind: RowKind;
+  unit: string | null;
+}
 
 export interface Hospitalization {
   id: string;
   horse: Horse;
   owner: Owner;
-  category: HospitalizationCategory;
+  category: string;
   admission_at: string;
+  admission_note: string | null;
   status: HospitalizationStatus;
   archived_at: string | null;
   duration_days: number;
   duration_hours: number;
-  next_scheduled_at: string | null;
+  next_schedule: NextSchedule | null;
 }
 
 export interface CreateHospitalizationRequest {
@@ -80,8 +116,9 @@ export interface CreateHospitalizationRequest {
   age_years?: number;
   age_months?: number;
   weight_kg: number;
-  category: HospitalizationCategory;
+  category: string;
   admission_at: string;
+  admission_note?: string;
   template_id?: string;
 }
 
@@ -189,6 +226,8 @@ export interface Medication {
   dose_min_per_kg: number | null;
   dose_max_per_kg: number | null;
   dose_unit: string | null;
+  concentration: number | null;
+  concentration_unit: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -199,6 +238,8 @@ export interface CreateMedicationRequest {
   dose_min_per_kg?: number;
   dose_max_per_kg?: number;
   dose_unit?: string;
+  concentration?: number;
+  concentration_unit?: string;
   notes?: string;
 }
 
@@ -215,12 +256,14 @@ export interface Material {
   clinic_id: string;
   name: string;
   unit: string;
+  notes: string | null;
   created_at: string;
 }
 
 export interface CreateMaterialRequest {
   name: string;
   unit: string;
+  notes?: string;
 }
 
 export interface MaterialUsage {
@@ -361,7 +404,7 @@ export interface HospitalizationSummary {
     id: string;
     horse: { name: string; weight_kg: number };
     owner: { full_name: string };
-    category: HospitalizationCategory;
+    category: string;
     admission_at: string;
     duration_days: number;
     duration_hours: number;
@@ -390,3 +433,6 @@ export interface PaginatedResponse<T> {
 export type PaginatedMaterials = PaginatedResponse<Material>;
 export type PaginatedMedications = PaginatedResponse<Medication>;
 export type PaginatedTemplates = PaginatedResponse<Template>;
+export type PaginatedUsers = PaginatedResponse<User>;
+export type PaginatedHospitalizations = PaginatedResponse<Hospitalization>;
+export type PaginatedCategories = PaginatedResponse<Category>;

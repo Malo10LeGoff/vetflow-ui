@@ -441,9 +441,13 @@ Delete a chart entry.
 
 ## POST /hospitalizations/{hospitalizationID}/schedules
 
-Create a recurring schedule (e.g., take temperature every 2 hours).
+Create a schedule for a chart row.
 
-**Request:**
+**Schedule Types:**
+- **Recurring**: Set `interval_minutes > 0` (e.g., every 2 hours = 120)
+- **Ad-hoc (one-time)**: Set `interval_minutes = 0` for a single occurrence at `start_at`
+
+**Request (recurring - every 2 hours):**
 ```json
 {
   "chart_row_id": "row-uuid-1",
@@ -456,7 +460,16 @@ Create a recurring schedule (e.g., take temperature every 2 hours).
 }
 ```
 
-**Request (with default value for medication):**
+**Request (ad-hoc - one-time check):**
+```json
+{
+  "chart_row_id": "row-uuid-1",
+  "start_at": "2024-02-05T15:00:00Z",
+  "interval_minutes": 0
+}
+```
+
+**Request (recurring with default value for medication):**
 ```json
 {
   "chart_row_id": "row-uuid-5",

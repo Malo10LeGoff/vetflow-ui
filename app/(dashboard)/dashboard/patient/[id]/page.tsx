@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { hospitalizationsApi, chartApi, materialsApi, medicationsApi, usersApi } from '@/lib/api';
-import { safeString, safeNumber, safeBool } from '@/lib/utils';
+import { hospitalizationsApi, chartApi, materialsApi, medicationsApi, usersApi, assignmentsApi } from '@/lib/api';
 import {
   Hospitalization,
   ChartData,
@@ -14,6 +13,9 @@ import {
   Medication,
   RowKind,
   User,
+  Schedule,
+  CreateChartEntryRequest,
+  AssignmentWithUser,
 } from '@/types';
 import {
   LineChart,
@@ -68,36 +70,63 @@ function ChartCell({
   entry,
   onSave,
   onDelete,
+  onToggleFlag,
   isCurrentHour: currentHour,
   isDisabled,
+  isScheduled,
   authorName,
+  medication,
+  horseWeight,
 }: {
   row: ChartRow;
   entry: ChartEntry | undefined;
   onSave: (value: string | number | boolean) => void;
   onDelete: () => void;
+  onToggleFlag: () => void;
   isCurrentHour?: boolean;
   isDisabled?: boolean;
+  isScheduled?: boolean;
   authorName?: string;
+  medication?: Medication;
+  horseWeight?: number;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [showObservationModal, setShowObservationModal] = useState(false);
+  const [showMedicationModal, setShowMedicationModal] = useState(false);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const [value, setValue] = useState('');
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setShowContextMenu(false);
+    if (showContextMenu) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showContextMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (isDisabled || !entry) return;
+    e.preventDefault();
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
 
   const displayValue = useMemo(() => {
     if (!entry) return '';
     switch (row.row_kind) {
       case 'NUMERIC':
-        const numVal = safeNumber(entry.numeric_value);
+        const numVal = entry.numeric_value;
         return numVal !== null ? numVal.toString() : '';
       case 'OPTION':
-        return safeString(entry.option_id) || '';
+        return entry.option_id || '';
       case 'CHECK':
-        return safeBool(entry.check_value) ? '✓' : '';
+        return entry.check_value ? '✓' : '';
       case 'TEXT':
-        return safeString(entry.text_value) || '';
+        return entry.text_value || '';
       case 'MEDICATION':
-        const medVal = safeNumber(entry.medication_amount);
+        const medVal = entry.medication_amount;
         return medVal !== null ? `${medVal}` : '';
       default:
         return '';
@@ -112,6 +141,8 @@ function ChartCell({
     if (isDisabled) return;
     if (row.row_kind === 'TEXT') {
       setShowObservationModal(true);
+    } else if (row.row_kind === 'MEDICATION') {
+      setShowMedicationModal(true);
     } else {
       setIsEditing(true);
     }
@@ -167,12 +198,36 @@ function ChartCell({
     setShowObservationModal(false);
   };
 
+  const handleMedicationSave = () => {
+    if (value !== displayValue) {
+      if (value.trim() === '' && entry) {
+        onDelete();
+      } else if (value.trim() !== '') {
+        const num = parseFloat(value);
+        if (!isNaN(num)) onSave(num);
+      }
+    }
+    setShowMedicationModal(false);
+  };
+
+  // Calculate dose range for medication
+  const doseRange = useMemo(() => {
+    if (row.row_kind !== 'MEDICATION' || !medication || !horseWeight) return null;
+    const minDose = medication.dose_min_per_kg != null ? medication.dose_min_per_kg * horseWeight : null;
+    const maxDose = medication.dose_max_per_kg != null ? medication.dose_max_per_kg * horseWeight : null;
+    return { minDose, maxDose, unit: medication.dose_unit || medication.reference_unit };
+  }, [row.row_kind, medication, horseWeight]);
+
   const isTextRow = row.row_kind === 'TEXT';
   const currentHourBg = currentHour ? 'bg-blue-50' : '';
   const disabledBg = isDisabled ? 'bg-gray-100 text-gray-400' : '';
+  const isFlagged = entry?.flagged === true;
+  const scheduledBg = isScheduled && !isFlagged && !isDisabled ? 'bg-indigo-50' : '';
+  const scheduledBorder = isScheduled && !isDisabled ? 'border-l-2 border-l-indigo-400' : '';
   const cellClass = `
     px-2 py-1 text-center text-sm border-r border-gray-200 min-w-[120px] ${isTextRow ? 'h-[120px]' : 'h-10'}
-    ${isDisabled ? disabledBg : entry?.flagged ? 'bg-red-100 text-red-700 font-medium' : currentHourBg}
+    ${isDisabled ? disabledBg : isFlagged ? 'bg-red-100 text-red-700 font-medium' : scheduledBg || currentHourBg}
+    ${scheduledBorder}
     ${isDisabled ? 'cursor-not-allowed' : isEditing ? 'bg-blue-100' : 'hover:bg-gray-50 cursor-pointer'}
   `;
 
@@ -190,43 +245,97 @@ function ChartCell({
     return `Modifié par ${author}\nle ${timestamp}`;
   }, [entry, authorName]);
 
-  if (row.row_kind === 'CHECK') {
-    const checkVal = safeBool(entry?.check_value);
-    return (
-      <td
-        className={cellClass}
-        onClick={() => !isDisabled && onSave(!checkVal)}
-        title={tooltip}
+  // Context menu component
+  const contextMenu = showContextMenu && (
+    <div
+      className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
+      style={{ left: contextMenuPos.x, top: contextMenuPos.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={() => {
+          onToggleFlag();
+          setShowContextMenu(false);
+        }}
+        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
       >
-        {checkVal ? '✓' : ''}
-      </td>
+        {isFlagged ? (
+          <>
+            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Retirer le signalement
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+            </svg>
+            Signaler comme important
+          </>
+        )}
+      </button>
+      {entry && (
+        <button
+          onClick={() => {
+            onDelete();
+            setShowContextMenu(false);
+          }}
+          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Supprimer
+        </button>
+      )}
+    </div>
+  );
+
+  if (row.row_kind === 'CHECK') {
+    const checkVal = entry?.check_value;
+    return (
+      <>
+        <td
+          className={cellClass}
+          onClick={() => !isDisabled && onSave(!checkVal)}
+          onContextMenu={handleContextMenu}
+          title={tooltip}
+        >
+          {checkVal ? '✓' : ''}
+        </td>
+        {contextMenu}
+      </>
     );
   }
 
   if (row.row_kind === 'OPTION') {
-    const label = safeString(row.label) || '';
+    const label = row.label || '';
     const options = label.toLowerCase().includes('douleur') ? painOptions : attitudeOptions;
     return (
-      <td className={cellClass} title={tooltip}>
-        <select
-          value={safeString(entry?.option_id) || ''}
-          onChange={(e) => {
-            if (isDisabled) return;
-            if (e.target.value === '' && entry) {
-              onDelete();
-            } else if (e.target.value !== '') {
-              onSave(e.target.value);
-            }
-          }}
-          disabled={isDisabled}
-          className={`w-full bg-transparent text-center text-sm focus:outline-none ${isDisabled ? 'cursor-not-allowed' : ''}`}
-        >
-          <option value="">-</option>
-          {options.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      </td>
+      <>
+        <td className={cellClass} title={tooltip} onContextMenu={handleContextMenu}>
+          <select
+            value={entry?.option_id || ''}
+            onChange={(e) => {
+              if (isDisabled) return;
+              if (e.target.value === '' && entry) {
+                onDelete();
+              } else if (e.target.value !== '') {
+                onSave(e.target.value);
+              }
+            }}
+            disabled={isDisabled}
+            className={`w-full bg-transparent text-center text-sm focus:outline-none ${isDisabled ? 'cursor-not-allowed' : ''}`}
+          >
+            <option value="">-</option>
+            {options.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </td>
+        {contextMenu}
+      </>
     );
   }
 
@@ -238,12 +347,14 @@ function ChartCell({
           className={`${cellClass} align-top`}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
+          onContextMenu={handleContextMenu}
           title={tooltip}
         >
           <div className="w-full h-full overflow-hidden text-xs text-left whitespace-pre-wrap line-clamp-5">
             {displayValue}
           </div>
         </td>
+        {contextMenu}
         {showObservationModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="card p-6 w-full max-w-lg mx-4">
@@ -278,28 +389,92 @@ function ChartCell({
 
   if (isEditing) {
     return (
-      <td className={cellClass}>
-        <input
-          type={row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION' ? 'number' : 'text'}
-          step="0.1"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          autoFocus
-          className="w-full bg-transparent text-center text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
-      </td>
+      <>
+        <td className={cellClass}>
+          <input
+            type={row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION' ? 'number' : 'text'}
+            step="0.1"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            className="w-full bg-transparent text-center text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </td>
+        {contextMenu}
+      </>
     );
   }
 
   return (
-    <td className={cellClass} onDoubleClick={handleDoubleClick} title={tooltip}>
-      {displayValue}
-      {row.row_kind === 'MEDICATION' && safeNumber(entry?.medication_amount) && (
-        <span className="text-gray-400 text-xs ml-0.5">{safeString(row.unit)}</span>
+    <>
+      <td className={cellClass} onDoubleClick={handleDoubleClick} onContextMenu={handleContextMenu} title={tooltip}>
+        {displayValue}
+        {row.row_kind === 'MEDICATION' && entry?.medication_amount && (
+          <span className="text-gray-400 text-xs ml-0.5">{row.unit}</span>
+        )}
+      </td>
+      {contextMenu}
+      {showMedicationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="card p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">{row.label}</h3>
+            {doseRange && (doseRange.minDose !== null || doseRange.maxDose !== null) ? (
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <span className="font-medium">Dose recommandée :</span>
+                  {doseRange.minDose !== null && doseRange.maxDose !== null ? (
+                    doseRange.minDose === doseRange.maxDose ? (
+                      <> {doseRange.minDose.toFixed(1)} {doseRange.unit}</>
+                    ) : (
+                      <> {doseRange.minDose.toFixed(1)} - {doseRange.maxDose.toFixed(1)} {doseRange.unit}</>
+                    )
+                  ) : doseRange.minDose !== null ? (
+                    <> min {doseRange.minDose.toFixed(1)} {doseRange.unit}</>
+                  ) : (
+                    <> max {doseRange.maxDose!.toFixed(1)} {doseRange.unit}</>
+                  )}
+                </p>
+                {horseWeight && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Basé sur le poids du cheval : {horseWeight} kg
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 mb-4">Pas de dosage de référence défini</p>
+            )}
+            <div className="mb-4">
+              <label className="label">Quantité ({row.unit || 'unité'})</label>
+              <input
+                type="number"
+                step="0.1"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="input"
+                placeholder="Saisir la quantité..."
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setValue(displayValue);
+                  setShowMedicationModal(false);
+                }}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <button onClick={handleMedicationSave} className="btn-primary">
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </td>
+    </>
   );
 }
 
@@ -320,7 +495,14 @@ export default function PatientFilePage() {
   const [showAddMaterial, setShowAddMaterial] = useState(false);
   const [deleteRowModal, setDeleteRowModal] = useState<ChartRow | null>(null);
   const [chartModalRow, setChartModalRow] = useState<ChartRow | null>(null);
+  const [scheduleModalRow, setScheduleModalRow] = useState<ChartRow | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<{ row: ChartRow; x: number; y: number } | null>(null);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [assignments, setAssignments] = useState<AssignmentWithUser[]>([]);
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const hasScrolledToCurrentHour = useRef(false);
 
   // Date navigation - default to today
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -345,20 +527,22 @@ export default function PatientFilePage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [hosp, chart, matUsage, matsResponse, medsResponse, usrs] = await Promise.all([
+      const [hosp, chart, matUsage, matsResponse, medsResponse, usrsResponse, assignmentsResponse] = await Promise.all([
         hospitalizationsApi.getById(hospitalizationId),
         chartApi.getChart(hospitalizationId),
         materialsApi.getUsage(hospitalizationId),
         materialsApi.getAll('', 1, 100),
         medicationsApi.getAll('', 1, 100),
         usersApi.getAll(),
+        assignmentsApi.getAssignments(hospitalizationId),
       ]);
       setHospitalization(hosp);
       setChartData(chart);
       setMaterialUsage(matUsage);
       setMaterials(matsResponse.items);
       setMedications(medsResponse.items);
-      setUsers(usrs);
+      setUsers(usrsResponse.items);
+      setAssignments(assignmentsResponse);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -369,6 +553,26 @@ export default function PatientFilePage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Auto-scroll to current hour on initial load only
+  useEffect(() => {
+    if (!isLoading && chartData && scrollContainerRef.current && !hasScrolledToCurrentHour.current) {
+      hasScrolledToCurrentHour.current = true;
+      const currentHour = new Date().getHours();
+      const cellWidth = 120; // min-w-[120px]
+      const labelColumnWidth = 200;
+      scrollContainerRef.current.scrollLeft = Math.max(0, (currentHour * cellWidth) - (scrollContainerRef.current.clientWidth / 2) + labelColumnWidth);
+    }
+  }, [isLoading, chartData]);
+
+  // Close row context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setRowContextMenu(null);
+    if (rowContextMenu) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [rowContextMenu]);
 
   // Calculate date boundaries
   const dateBounds = useMemo(() => {
@@ -469,10 +673,98 @@ export default function PatientFilePage() {
     return map;
   }, [users]);
 
+  // Medications map for quick lookup
+  const medicationsMap = useMemo(() => {
+    const map = new Map<string, Medication>();
+    medications.forEach(med => map.set(med.id, med));
+    return map;
+  }, [medications]);
+
   const getEntry = useCallback((rowId: string, hour: Date): ChartEntry | undefined => {
     const timeKey = normalizeTimeKey(hour);
     return entriesMap.get(`${rowId}-${timeKey}`);
   }, [entriesMap]);
+
+  // Get schedules for a specific row
+  const getSchedulesForRow = useCallback((rowId: string): Schedule[] => {
+    if (!chartData?.schedules) return [];
+    return chartData.schedules.filter(s => s.chart_row_id === rowId);
+  }, [chartData?.schedules]);
+
+  // Check if a schedule triggers at a given hour
+  const isScheduleTriggeredAt = useCallback((schedule: Schedule, hour: Date): boolean => {
+    // Helper to extract nullable int (same logic as in ScheduleModal)
+    const extractInt = (value: number | { Int32: number; Valid: boolean } | null | undefined): number | null => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'object' && 'Valid' in value && 'Int32' in value) {
+        return value.Valid ? value.Int32 : null;
+      }
+      return null;
+    };
+
+    const extractStr = (value: string | { String: string; Valid: boolean } | null | undefined): string | null => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object' && 'Valid' in value && 'String' in value) {
+        return value.Valid ? value.String : null;
+      }
+      return null;
+    };
+
+    const startAt = new Date(schedule.start_at);
+    startAt.setMinutes(0, 0, 0); // Round to hour
+
+    const hourTime = new Date(hour);
+    hourTime.setMinutes(0, 0, 0); // Round to hour
+
+    const intervalMinutes = extractInt(schedule.interval_minutes);
+    if (intervalMinutes === null) return false;
+
+    // One-time schedule
+    if (intervalMinutes === 0) {
+      return hourTime.getTime() === startAt.getTime();
+    }
+
+    // Recurring: hasn't started yet
+    if (hourTime < startAt) {
+      return false;
+    }
+
+    // Calculate minutes since start
+    const minutesSinceStart = (hourTime.getTime() - startAt.getTime()) / (1000 * 60);
+
+    // Not on an interval boundary
+    if (minutesSinceStart % intervalMinutes !== 0) {
+      return false;
+    }
+
+    // Check end_at condition
+    const endAtStr = extractStr(schedule.end_at);
+    if (endAtStr) {
+      const endAt = new Date(endAtStr);
+      if (hourTime > endAt) {
+        return false;
+      }
+    }
+
+    // Check occurrences condition
+    const occurrences = extractInt(schedule.occurrences);
+    if (occurrences !== null) {
+      const occurrenceNumber = (minutesSinceStart / intervalMinutes) + 1;
+      if (occurrenceNumber > occurrences) {
+        return false;
+      }
+    }
+
+    return true;
+  }, []);
+
+  // Check if any schedule for a row triggers at a given hour
+  const isRowScheduledAt = useCallback((rowId: string, hour: Date): boolean => {
+    const schedules = getSchedulesForRow(rowId);
+    return schedules.some(schedule => isScheduleTriggeredAt(schedule, hour));
+  }, [getSchedulesForRow, isScheduleTriggeredAt]);
 
   const handleCellSave = async (row: ChartRow, hour: Date, value: string | number | boolean) => {
     const existingEntry = getEntry(row.id, hour);
@@ -487,7 +779,7 @@ export default function PatientFilePage() {
       ...(row.row_kind === 'TEXT' && { text_value: value as string }),
       ...(row.row_kind === 'MEDICATION' && {
         medication_amount: value as number,
-        medication_unit: safeString(row.unit) || 'ml',
+        medication_unit: row.unit || 'ml',
       }),
     };
 
@@ -516,6 +808,45 @@ export default function PatientFilePage() {
       setChartData(chart);
     } catch (error) {
       console.error('Error deleting entry:', error);
+    }
+  };
+
+  const handleToggleFlag = async (row: ChartRow, hour: Date) => {
+    const existingEntry = getEntry(row.id, hour);
+    if (!existingEntry) return;
+
+    try {
+      // Build update data with current values preserved
+      const updateData: Partial<CreateChartEntryRequest> = {
+        flagged: !existingEntry.flagged,
+      };
+
+      // Preserve the current value based on entry type
+      if (existingEntry.numeric_value !== null && existingEntry.numeric_value !== undefined) {
+        updateData.numeric_value = existingEntry.numeric_value;
+      }
+      if (existingEntry.option_id !== null && existingEntry.option_id !== undefined) {
+        updateData.option_id = existingEntry.option_id;
+      }
+      if (existingEntry.check_value !== null && existingEntry.check_value !== undefined) {
+        updateData.check_value = existingEntry.check_value;
+      }
+      if (existingEntry.text_value !== null && existingEntry.text_value !== undefined) {
+        updateData.text_value = existingEntry.text_value;
+      }
+      if (existingEntry.medication_amount !== null && existingEntry.medication_amount !== undefined) {
+        updateData.medication_amount = existingEntry.medication_amount;
+        updateData.medication_unit = existingEntry.medication_unit || undefined;
+      }
+
+      const result = await chartApi.updateEntry(hospitalizationId, existingEntry.id, updateData);
+      console.log('Flag toggled, new flagged value:', result.flagged);
+
+      // Reload chart data
+      const chart = await chartApi.getChart(hospitalizationId);
+      setChartData(chart);
+    } catch (error) {
+      console.error('Error toggling flag:', error);
     }
   };
 
@@ -548,6 +879,18 @@ export default function PatientFilePage() {
       setChartData(chart);
     } catch (error) {
       console.error('Error deleting row:', error);
+    }
+  };
+
+  const handleArchive = async () => {
+    setIsArchiving(true);
+    try {
+      await hospitalizationsApi.archive(hospitalizationId);
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Error archiving hospitalization:', error);
+      setIsArchiving(false);
+      setShowArchiveModal(false);
     }
   };
 
@@ -629,14 +972,30 @@ export default function PatientFilePage() {
               <span>Durée: <strong>{formatDuration(hospitalization.duration_days, hospitalization.duration_hours)}</strong></span>
               <span>|</span>
               <span>Propriétaire: <strong>{hospitalization.owner.full_name}</strong></span>
+              <span>|</span>
+              <button
+                onClick={() => setShowAssignmentModal(true)}
+                className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+              >
+                Vétérinaire: <strong>{assignments.length > 0 ? assignments.map(a => `${a.user.first_name} ${a.user.last_name}`).join(', ') : 'Non assigné'}</strong>
+                <svg className="w-3 h-3 ml-[5px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSummary(true)}
-              className="btn-secondary"
+              className="btn-primary"
             >
               Résumé
+            </button>
+            <button
+              onClick={() => setShowArchiveModal(true)}
+              className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              Archiver
             </button>
           </div>
         </div>
@@ -702,6 +1061,21 @@ export default function PatientFilePage() {
         </div>
       </div>
 
+      {/* Admission Note */}
+      {hospitalization.admission_note && (
+        <div className="card p-4 mb-4 bg-amber-50 border-amber-200">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <div>
+              <h3 className="text-sm font-semibold text-amber-800 mb-1">Note d&apos;arrivée</h3>
+              <p className="text-sm text-amber-700 whitespace-pre-wrap">{hospitalization.admission_note}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chart Table */}
       <div className="card overflow-hidden">
         <div ref={scrollContainerRef} className="overflow-x-auto">
@@ -727,13 +1101,32 @@ export default function PatientFilePage() {
               </tr>
             </thead>
             <tbody>
-              {(chartData.rows || []).sort((a, b) => a.sort_order - b.sort_order).map((row) => (
+              {(chartData.rows || []).sort((a, b) => a.sort_order - b.sort_order).map((row) => {
+                const rowSchedules = getSchedulesForRow(row.id);
+                const hasSchedules = rowSchedules.length > 0;
+                return (
                 <tr key={row.id} className="group border-b border-gray-200 hover:bg-gray-50/50">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-2 border-r border-gray-200">
+                  <td
+                    className="sticky left-0 z-10 bg-white px-4 py-2 border-r border-gray-200"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setRowContextMenu({ row, x: e.clientX, y: e.clientY });
+                    }}
+                  >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-sm text-gray-900">{safeString(row.label)}</div>
-                        {safeString(row.unit) && <div className="text-xs text-gray-500">{safeString(row.unit)}</div>}
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="font-medium text-sm text-gray-900">{row.label}</div>
+                          {row.unit && <div className="text-xs text-gray-500">{row.unit}</div>}
+                        </div>
+                        {hasSchedules && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full" title={`${rowSchedules.length} planning(s) actif(s)`}>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {rowSchedules.length}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         {row.row_kind === 'NUMERIC' && (
@@ -748,12 +1141,12 @@ export default function PatientFilePage() {
                           </button>
                         )}
                         <button
-                          onClick={() => setDeleteRowModal(row)}
-                          className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Supprimer"
+                          onClick={() => setScheduleModalRow(row)}
+                          className={`p-1 ${hasSchedules ? 'text-blue-600' : 'text-gray-400'} hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity`}
+                          title="Gérer les plannings"
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
                       </div>
@@ -762,6 +1155,8 @@ export default function PatientFilePage() {
                   {hours.map((hour) => {
                     const entry = getEntry(row.id, hour);
                     const author = entry ? usersMap.get(entry.author_user_id) : undefined;
+                    const scheduled = isRowScheduledAt(row.id, hour);
+                    const medication = row.medication_id ? medicationsMap.get(row.medication_id) : undefined;
                     return (
                       <ChartCell
                         key={`${row.id}-${hour.toISOString()}`}
@@ -769,14 +1164,19 @@ export default function PatientFilePage() {
                         entry={entry}
                         onSave={(value) => handleCellSave(row, hour, value)}
                         onDelete={() => handleCellDelete(row, hour)}
+                        onToggleFlag={() => handleToggleFlag(row, hour)}
                         isCurrentHour={isCurrentHour(hour)}
                         isDisabled={hour < new Date(hospitalization.admission_at)}
+                        isScheduled={scheduled}
                         authorName={author ? `${author.first_name} ${author.last_name}` : undefined}
+                        medication={medication}
+                        horseWeight={hospitalization.horse.weight_kg}
                       />
                     );
                   })}
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -865,6 +1265,41 @@ export default function PatientFilePage() {
                       <option key={med.id} value={med.id}>{med.name} ({med.reference_unit})</option>
                     ))}
                   </select>
+                  {/* Show dosage calculation when medication is selected */}
+                  {(() => {
+                    const selectedMed = medications.find(m => m.id === newRow.medication_id);
+                    if (!selectedMed || !hospitalization) return null;
+                    const horseWeight = hospitalization.horse.weight_kg;
+                    const minDose = selectedMed.dose_min_per_kg != null ? selectedMed.dose_min_per_kg * horseWeight : null;
+                    const maxDose = selectedMed.dose_max_per_kg != null ? selectedMed.dose_max_per_kg * horseWeight : null;
+                    const unit = selectedMed.dose_unit || selectedMed.reference_unit;
+
+                    if (minDose === null && maxDose === null) return null;
+
+                    return (
+                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm font-medium text-blue-800 mb-1">
+                          Dosage recommandé pour {hospitalization.horse.name} ({horseWeight} kg)
+                        </p>
+                        <p className="text-sm text-blue-700">
+                          {minDose !== null && maxDose !== null ? (
+                            minDose === maxDose ? (
+                              <>{minDose.toFixed(1)} {unit}</>
+                            ) : (
+                              <>{minDose.toFixed(1)} - {maxDose.toFixed(1)} {unit}</>
+                            )
+                          ) : minDose !== null ? (
+                            <>Min: {minDose.toFixed(1)} {unit}</>
+                          ) : maxDose !== null ? (
+                            <>Max: {maxDose.toFixed(1)} {unit}</>
+                          ) : null}
+                        </p>
+                        {selectedMed.notes && (
+                          <p className="text-xs text-blue-600 mt-1">{selectedMed.notes}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <>
@@ -947,6 +1382,54 @@ export default function PatientFilePage() {
         </div>
       )}
 
+      {/* Row Context Menu */}
+      {rowContextMenu && (
+        <div
+          className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px]"
+          style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {rowContextMenu.row.row_kind === 'NUMERIC' && (
+            <button
+              onClick={() => {
+                setChartModalRow(rowContextMenu.row);
+                setRowContextMenu(null);
+              }}
+              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              Voir le graphique
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setScheduleModalRow(rowContextMenu.row);
+              setRowContextMenu(null);
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Gérer le planning
+          </button>
+          <button
+            onClick={() => {
+              setDeleteRowModal(rowContextMenu.row);
+              setRowContextMenu(null);
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Supprimer la ligne
+          </button>
+        </div>
+      )}
+
       {/* Delete Row Confirmation Modal */}
       {deleteRowModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -964,9 +1447,9 @@ export default function PatientFilePage() {
             </div>
 
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <p className="font-medium text-gray-900">{safeString(deleteRowModal.label)}</p>
-              {safeString(deleteRowModal.unit) && (
-                <p className="text-sm text-gray-500">Unité: {safeString(deleteRowModal.unit)}</p>
+              <p className="font-medium text-gray-900">{deleteRowModal.label}</p>
+              {deleteRowModal.unit && (
+                <p className="text-sm text-gray-500">Unité: {deleteRowModal.unit}</p>
               )}
             </div>
 
@@ -992,6 +1475,150 @@ export default function PatientFilePage() {
         </div>
       )}
 
+      {/* Assignment Modal */}
+      {showAssignmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="card p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Vétérinaires assignés</h3>
+              <button onClick={() => setShowAssignmentModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Current assignments */}
+            {assignments.length > 0 ? (
+              <div className="space-y-2 mb-4">
+                {assignments.map(a => (
+                  <div key={a.assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900">{a.user.first_name} {a.user.last_name}</p>
+                      <p className="text-sm text-gray-500">{a.user.role}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await assignmentsApi.unassign(hospitalizationId, a.user.id);
+                          setAssignments(prev => prev.filter(x => x.assignment.id !== a.assignment.id));
+                        } catch (error) {
+                          console.error('Error removing assignment:', error);
+                        }
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                      title="Retirer"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm mb-4">Aucun vétérinaire assigné</p>
+            )}
+
+            {/* Add new assignment */}
+            <div className="border-t border-gray-200 pt-4">
+              <label className="label">Ajouter un vétérinaire</label>
+              <div className="flex gap-2">
+                <select
+                  id="add-vet-select"
+                  className="input flex-1"
+                  defaultValue=""
+                >
+                  <option value="">Sélectionner...</option>
+                  {users
+                    .filter(u => (u.role === 'VET' || u.role === 'ASV') && !assignments.some(a => a.user.id === u.id))
+                    .map(u => (
+                      <option key={u.id} value={u.id}>{u.first_name} {u.last_name} ({u.role})</option>
+                    ))
+                  }
+                </select>
+                <button
+                  onClick={async () => {
+                    const select = document.getElementById('add-vet-select') as HTMLSelectElement;
+                    const userId = select.value;
+                    if (!userId) return;
+                    try {
+                      const newAssignment = await assignmentsApi.assign(hospitalizationId, userId);
+                      setAssignments(prev => [...prev, newAssignment]);
+                      select.value = '';
+                    } catch (error) {
+                      console.error('Error adding assignment:', error);
+                    }
+                  }}
+                  className="btn-primary"
+                >
+                  Ajouter
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button onClick={() => setShowAssignmentModal(false)} className="btn-secondary">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Confirmation Modal */}
+      {showArchiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="card p-6 w-full max-w-md mx-4">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Archiver l&apos;hospitalisation</h3>
+                <p className="text-sm text-gray-500">Le patient sera marqué comme sorti</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <p className="font-medium text-gray-900">{hospitalization.horse.name}</p>
+              <p className="text-sm text-gray-500">Propriétaire: {hospitalization.owner.full_name}</p>
+              <p className="text-sm text-gray-500">Durée: {formatDuration(hospitalization.duration_days, hospitalization.duration_hours)}</p>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-6">
+              Êtes-vous sûr de vouloir archiver cette hospitalisation ? Vous pourrez toujours consulter les données dans les archives.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowArchiveModal(false)}
+                className="btn-secondary"
+                disabled={isArchiving}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleArchive}
+                disabled={isArchiving}
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {isArchiving ? (
+                  <span className="flex items-center gap-2">
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Archivage...
+                  </span>
+                ) : (
+                  'Archiver'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Numeric Chart Modal */}
       {chartModalRow && (
         <NumericChartModal
@@ -999,6 +1626,20 @@ export default function PatientFilePage() {
           entries={chartData.entries?.filter(e => e.chart_row_id === chartModalRow.id) || []}
           admissionDate={hospitalization.admission_at}
           onClose={() => setChartModalRow(null)}
+        />
+      )}
+
+      {/* Schedule Modal */}
+      {scheduleModalRow && (
+        <ScheduleModal
+          row={scheduleModalRow}
+          schedules={chartData.schedules?.filter(s => s.chart_row_id === scheduleModalRow.id) || []}
+          hospitalizationId={hospitalizationId}
+          onClose={() => setScheduleModalRow(null)}
+          onUpdate={async () => {
+            const chart = await chartApi.getChart(hospitalizationId);
+            setChartData(chart);
+          }}
         />
       )}
 
@@ -1125,7 +1766,7 @@ function SummaryModal({
 
     const data = hours.map(hour => {
       const entry = rowEntriesMap.get(hour.getTime());
-      const numericValue = entry ? safeNumber(entry.numeric_value) : null;
+      const numericValue = entry ? entry.numeric_value : null;
       return {
         time: hour.toLocaleString('fr-FR', {
           day: '2-digit',
@@ -1134,7 +1775,7 @@ function SummaryModal({
           minute: '2-digit',
         }),
         value: numericValue,
-        flagged: entry ? safeBool(entry.flagged) ?? false : false,
+        flagged: entry ? entry.flagged ?? false : false,
       };
     });
 
@@ -1146,16 +1787,16 @@ function SummaryModal({
     if (!entry) return '';
     switch (row.row_kind) {
       case 'NUMERIC':
-        const numVal = safeNumber(entry.numeric_value);
+        const numVal = entry.numeric_value;
         return numVal !== null ? numVal.toString() : '';
       case 'OPTION':
-        return safeString(entry.option_id) || '';
+        return entry.option_id || '';
       case 'CHECK':
-        return safeBool(entry.check_value) ? '✓' : '';
+        return entry.check_value ? '✓' : '';
       case 'TEXT':
-        return safeString(entry.text_value) || '';
+        return entry.text_value || '';
       case 'MEDICATION':
-        const medVal = safeNumber(entry.medication_amount);
+        const medVal = entry.medication_amount;
         return medVal !== null ? `${medVal}` : '';
       default:
         return '';
@@ -1301,13 +1942,13 @@ function SummaryModal({
                 const max = Math.max(...values);
                 const padding = (max - min) * 0.1 || 5;
                 const yDomain = [Math.floor(min - padding), Math.ceil(max + padding)];
-                const unit = safeString(row.unit) || '';
+                const unit = row.unit || '';
                 const flaggedPoints = data.filter(d => d.flagged && d.value !== null);
 
                 return (
                   <div key={row.id} className="border border-gray-200 rounded-lg p-4">
                     <div className="mb-2">
-                      <h5 className="font-medium text-gray-800">{safeString(row.label)}</h5>
+                      <h5 className="font-medium text-gray-800">{row.label}</h5>
                       {unit && <p className="text-xs text-gray-500">Unité: {unit}</p>}
                     </div>
                     <div style={{ width: '100%', height: 200 }}>
@@ -1316,10 +1957,10 @@ function SummaryModal({
                           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                           <XAxis
                             dataKey="time"
-                            tick={{ fontSize: 10 }}
+                            tick={{ fontSize: 10, dy: 15 }}
                             angle={-45}
                             textAnchor="end"
-                            height={60}
+                            height={70}
                             interval="preserveStartEnd"
                           />
                           <YAxis
@@ -1328,7 +1969,7 @@ function SummaryModal({
                             tickFormatter={(val) => `${val}${unit ? ` ${unit}` : ''}`}
                           />
                           <Tooltip
-                            formatter={(value) => [`${value} ${unit}`, safeString(row.label)]}
+                            formatter={(value) => [`${value} ${unit}`, row.label]}
                             labelStyle={{ fontWeight: 'bold' }}
                           />
                           <Line
@@ -1388,13 +2029,13 @@ function SummaryModal({
                   {chartData.rows.sort((a, b) => a.sort_order - b.sort_order).map((row) => (
                     <tr key={row.id}>
                       <td className="border border-gray-300 p-1 bg-gray-50 font-medium sticky left-0">
-                        {safeString(row.label)}
-                        {safeString(row.unit) && <span className="text-gray-400 ml-1">({safeString(row.unit)})</span>}
+                        {row.label}
+                        {row.unit && <span className="text-gray-400 ml-1">({row.unit})</span>}
                       </td>
                       {tableauHours.map((hour, idx) => {
                         const entry = entriesMap.get(`${row.id}-${hour.getTime()}`);
                         const displayValue = getEntryDisplay(row, entry);
-                        const isFlagged = entry && safeBool(entry.flagged);
+                        const isFlagged = entry && entry.flagged;
                         return (
                           <td
                             key={idx}
@@ -1505,7 +2146,7 @@ function NumericChartModal({
   const chartData = useMemo(() => {
     return allHours.map(hour => {
       const entry = entriesMap.get(hour.getTime());
-      const numericValue = entry ? safeNumber(entry.numeric_value) : null;
+      const numericValue = entry ? entry.numeric_value : null;
 
       return {
         time: hour.toLocaleString('fr-FR', {
@@ -1515,7 +2156,7 @@ function NumericChartModal({
           minute: '2-digit',
         }),
         value: numericValue,
-        flagged: entry ? safeBool(entry.flagged) ?? false : false,
+        flagged: entry ? entry.flagged ?? false : false,
       };
     });
   }, [allHours, entriesMap]);
@@ -1540,14 +2181,14 @@ function NumericChartModal({
     return [Math.floor(min - padding), Math.ceil(max + padding)];
   }, [chartData]);
 
-  const unit = safeString(row.unit) || '';
+  const unit = row.unit || '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="card p-6 w-full max-w-3xl mx-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">{safeString(row.label)}</h3>
+            <h3 className="text-lg font-semibold text-gray-900">{row.label}</h3>
             {unit && <p className="text-sm text-gray-500">Unité: {unit}</p>}
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
@@ -1571,10 +2212,10 @@ function NumericChartModal({
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   dataKey="time"
-                  tick={{ fontSize: 11, fill: '#6b7280' }}
+                  tick={{ fontSize: 11, fill: '#6b7280', dy: 15 }}
                   angle={-45}
                   textAnchor="end"
-                  height={60}
+                  height={70}
                   interval="preserveStartEnd"
                 />
                 <YAxis
@@ -1589,7 +2230,7 @@ function NumericChartModal({
                     borderRadius: '8px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                   }}
-                  formatter={(value) => [`${value ?? ''} ${unit}`, safeString(row.label)]}
+                  formatter={(value) => [`${value ?? ''} ${unit}`, row.label]}
                   labelStyle={{ fontWeight: 600, marginBottom: 4 }}
                 />
                 <Line
@@ -1620,14 +2261,436 @@ function NumericChartModal({
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
           <div className="flex items-center gap-4 text-sm text-gray-500">
             <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-blue-600"></span>
-              Valeur normale
-            </span>
-            <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-full bg-red-600"></span>
               Valeur signalée
             </span>
           </div>
+          <button onClick={onClose} className="btn-secondary">
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Schedule Modal Component
+function ScheduleModal({
+  row,
+  schedules,
+  hospitalizationId,
+  onClose,
+  onUpdate,
+}: {
+  row: ChartRow;
+  schedules: Schedule[];
+  hospitalizationId: string;
+  onClose: () => void;
+  onUpdate: () => Promise<void>;
+}) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Form state for new schedule
+  const [newSchedule, setNewSchedule] = useState({
+    schedule_type: 'recurring' as 'recurring' | 'one_time',
+    start_at: new Date().toISOString().slice(0, 16),
+    interval_hours: 2,
+    end_type: 'never' as 'never' | 'date' | 'occurrences',
+    end_at: '',
+    occurrences: 10,
+    default_value: '',
+  });
+
+  // Helper to extract value from nullable backend fields like {Int32: 120, Valid: true}
+  const extractNullableInt = (value: number | { Int32: number; Valid: boolean } | null | undefined): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'object' && 'Valid' in value && 'Int32' in value) {
+      return value.Valid ? value.Int32 : null;
+    }
+    return null;
+  };
+
+  const extractNullableString = (value: string | { String: string; Valid: boolean } | null | undefined): string | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object' && 'Valid' in value && 'String' in value) {
+      return value.Valid ? value.String : null;
+    }
+    return null;
+  };
+
+  const formatInterval = (minutes: number | { Int32: number; Valid: boolean }) => {
+    const mins = extractNullableInt(minutes);
+    if (mins === null) return 'N/A';
+    if (mins < 60) return `${mins} min`;
+    const hours = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    if (remainingMins === 0) return `${hours}h`;
+    return `${hours}h${remainingMins}`;
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const handleCreateSchedule = async () => {
+    setError('');
+    setIsSubmitting(true);
+
+    try {
+      const isOneTime = newSchedule.schedule_type === 'one_time';
+
+      const payload: {
+        chart_row_id: string;
+        start_at: string;
+        interval_minutes: number;
+        end_at?: string;
+        occurrences?: number;
+        default_numeric?: number;
+        default_text?: string;
+      } = {
+        chart_row_id: row.id,
+        start_at: new Date(newSchedule.start_at).toISOString(),
+        interval_minutes: isOneTime ? 0 : newSchedule.interval_hours * 60,
+      };
+
+      // Only add end conditions for recurring schedules
+      if (!isOneTime) {
+        if (newSchedule.end_type === 'date' && newSchedule.end_at) {
+          payload.end_at = new Date(newSchedule.end_at).toISOString();
+        } else if (newSchedule.end_type === 'occurrences') {
+          payload.occurrences = newSchedule.occurrences;
+        }
+      }
+
+      // Add default value based on row type
+      if (newSchedule.default_value) {
+        if (row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION') {
+          const num = parseFloat(newSchedule.default_value);
+          if (!isNaN(num)) {
+            payload.default_numeric = num;
+          }
+        } else if (row.row_kind === 'TEXT') {
+          payload.default_text = newSchedule.default_value;
+        }
+      }
+
+      await chartApi.createSchedule(hospitalizationId, payload);
+      await onUpdate();
+      setShowAddForm(false);
+      setNewSchedule({
+        schedule_type: 'recurring',
+        start_at: new Date().toISOString().slice(0, 16),
+        interval_hours: 2,
+        end_type: 'never',
+        end_at: '',
+        occurrences: 10,
+        default_value: '',
+      });
+    } catch (err) {
+      setError('Erreur lors de la création du planning');
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (scheduleId: string) => {
+    try {
+      await chartApi.deleteSchedule(hospitalizationId, scheduleId);
+      await onUpdate();
+    } catch (err) {
+      console.error('Error deleting schedule:', err);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="card p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Plannings</h3>
+            <p className="text-sm text-gray-500">{row.label}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
+            {error}
+          </div>
+        )}
+
+        {/* Existing schedules */}
+        {schedules.length === 0 ? (
+          <div className="text-center py-6 text-gray-500">
+            <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>Aucun planning configuré</p>
+            <p className="text-sm">Ajoutez un planning pour automatiser les rappels</p>
+          </div>
+        ) : (
+          <div className="space-y-3 mb-4">
+            {schedules.map((schedule) => {
+              const intervalMinutes = extractNullableInt(schedule.interval_minutes);
+              const isOneTime = intervalMinutes === 0;
+
+              return (
+              <div
+                key={schedule.id}
+                className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      {isOneTime ? (
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Ponctuel
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Toutes les {formatInterval(schedule.interval_minutes)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <p>
+                        <span className="text-gray-500">{isOneTime ? 'Date:' : 'Début:'}</span>{' '}
+                        {formatDate(schedule.start_at)}
+                      </p>
+                      {!isOneTime && (() => {
+                        const endAt = extractNullableString(schedule.end_at);
+                        const occurrences = extractNullableInt(schedule.occurrences);
+
+                        if (endAt) {
+                          return (
+                            <p>
+                              <span className="text-gray-500">Fin:</span>{' '}
+                              {formatDate(endAt)}
+                            </p>
+                          );
+                        } else if (occurrences !== null && intervalMinutes !== null && intervalMinutes > 0) {
+                          // Compute end date from start + (interval * occurrences)
+                          const startDate = new Date(schedule.start_at);
+                          const endDate = new Date(startDate.getTime() + (intervalMinutes * occurrences * 60 * 1000));
+                          return (
+                            <>
+                              <p>
+                                <span className="text-gray-500">Occurrences:</span>{' '}
+                                {occurrences}
+                              </p>
+                              <p>
+                                <span className="text-gray-500">Fin (calculée):</span>{' '}
+                                {formatDate(endDate.toISOString())}
+                              </p>
+                            </>
+                          );
+                        } else {
+                          return <p className="text-gray-400 italic">Sans fin définie</p>;
+                        }
+                      })()}
+                      {(extractNullableInt(schedule.default_numeric) !== null || extractNullableString(schedule.default_text)) && (
+                        <p>
+                          <span className="text-gray-500">Valeur par défaut:</span>{' '}
+                          {extractNullableInt(schedule.default_numeric) ?? extractNullableString(schedule.default_text)}
+                          {extractNullableString(schedule.default_unit) && ` ${extractNullableString(schedule.default_unit)}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteSchedule(schedule.id)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    title="Supprimer"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Add new schedule form */}
+        {showAddForm ? (
+          <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
+            <h4 className="font-medium text-gray-900 mb-4">Nouveau planning</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="label">Type de planning</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="schedule_type"
+                      value="recurring"
+                      checked={newSchedule.schedule_type === 'recurring'}
+                      onChange={() => setNewSchedule({ ...newSchedule, schedule_type: 'recurring' })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm">Récurrent</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="schedule_type"
+                      value="one_time"
+                      checked={newSchedule.schedule_type === 'one_time'}
+                      onChange={() => setNewSchedule({ ...newSchedule, schedule_type: 'one_time' })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm">Ponctuel (une seule fois)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">
+                  {newSchedule.schedule_type === 'one_time' ? 'Date et heure' : 'Date et heure de début'}
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newSchedule.start_at}
+                  onChange={(e) => setNewSchedule({ ...newSchedule, start_at: e.target.value })}
+                  className="input"
+                />
+              </div>
+
+              {newSchedule.schedule_type === 'recurring' && (
+                <>
+                  <div>
+                    <label className="label">Intervalle</label>
+                    <select
+                      value={newSchedule.interval_hours}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, interval_hours: parseInt(e.target.value) })}
+                      className="input"
+                    >
+                      <option value={1}>Toutes les heures</option>
+                      <option value={2}>Toutes les 2 heures</option>
+                      <option value={3}>Toutes les 3 heures</option>
+                      <option value={4}>Toutes les 4 heures</option>
+                      <option value={6}>Toutes les 6 heures</option>
+                      <option value={8}>Toutes les 8 heures</option>
+                      <option value={12}>Toutes les 12 heures</option>
+                      <option value={24}>Toutes les 24 heures</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">Fin du planning</label>
+                    <select
+                      value={newSchedule.end_type}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, end_type: e.target.value as 'never' | 'date' | 'occurrences' })}
+                      className="input"
+                    >
+                      <option value="never">Sans fin</option>
+                      <option value="date">Date de fin</option>
+                      <option value="occurrences">Nombre d&apos;occurrences</option>
+                    </select>
+                  </div>
+
+                  {newSchedule.end_type === 'date' && (
+                    <div>
+                      <label className="label">Date de fin</label>
+                      <input
+                        type="datetime-local"
+                        value={newSchedule.end_at}
+                        onChange={(e) => setNewSchedule({ ...newSchedule, end_at: e.target.value })}
+                        className="input"
+                      />
+                    </div>
+                  )}
+
+                  {newSchedule.end_type === 'occurrences' && (
+                    <div>
+                      <label className="label">Nombre d&apos;occurrences</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newSchedule.occurrences}
+                        onChange={(e) => setNewSchedule({ ...newSchedule, occurrences: parseInt(e.target.value) || 1 })}
+                        className="input"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {(row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION' || row.row_kind === 'TEXT') && (
+                <div>
+                  <label className="label">Valeur par défaut (optionnel)</label>
+                  <input
+                    type={row.row_kind === 'NUMERIC' || row.row_kind === 'MEDICATION' ? 'number' : 'text'}
+                    step="0.1"
+                    value={newSchedule.default_value}
+                    onChange={(e) => setNewSchedule({ ...newSchedule, default_value: e.target.value })}
+                    className="input"
+                    placeholder={row.row_kind === 'TEXT' ? 'Texte par défaut' : 'Valeur par défaut'}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setShowAddForm(false)}
+                className="btn-secondary"
+                disabled={isSubmitting}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleCreateSchedule}
+                className="btn-primary"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Création...
+                  </span>
+                ) : (
+                  'Créer'
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="w-full btn-secondary flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Ajouter un planning
+          </button>
+        )}
+
+        <div className="flex justify-end mt-4 pt-4 border-t border-gray-200">
           <button onClick={onClose} className="btn-secondary">
             Fermer
           </button>

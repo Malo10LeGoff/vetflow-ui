@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { medicationsApi } from '@/lib/api';
 import { Medication } from '@/types';
-import { safeString, safeNumber } from '@/lib/utils';
 
 const PAGE_SIZE = 20;
 
@@ -20,8 +19,11 @@ export default function MedicationsPage() {
     dose_min_per_kg: '',
     dose_max_per_kg: '',
     dose_unit: '',
+    concentration: '',
+    concentration_unit: '',
     notes: '',
   });
+  const [dosageDisplayMode, setDosageDisplayMode] = useState<'mg' | 'ml'>('mg');
   const [deleteModal, setDeleteModal] = useState<Medication | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,6 +163,8 @@ export default function MedicationsPage() {
       dose_min_per_kg: '',
       dose_max_per_kg: '',
       dose_unit: '',
+      concentration: '',
+      concentration_unit: '',
       notes: '',
     });
     setEditingMedication(null);
@@ -174,15 +178,18 @@ export default function MedicationsPage() {
 
   const handleOpenEdit = (medication: Medication) => {
     setEditingMedication(medication);
-    const doseMin = safeNumber(medication.dose_min_per_kg);
-    const doseMax = safeNumber(medication.dose_max_per_kg);
+    const doseMin = medication.dose_min_per_kg;
+    const doseMax = medication.dose_max_per_kg;
+    const concentration = medication.concentration;
     setFormData({
-      name: safeString(medication.name) || '',
-      reference_unit: safeString(medication.reference_unit) || '',
+      name: medication.name || '',
+      reference_unit: medication.reference_unit || '',
       dose_min_per_kg: doseMin !== null ? doseMin.toString() : '',
       dose_max_per_kg: doseMax !== null ? doseMax.toString() : '',
-      dose_unit: safeString(medication.dose_unit) || '',
-      notes: safeString(medication.notes) || '',
+      dose_unit: medication.dose_unit || '',
+      concentration: concentration !== null ? concentration.toString() : '',
+      concentration_unit: medication.concentration_unit || '',
+      notes: medication.notes || '',
     });
     setFormError(null);
     setShowModal(true);
@@ -207,6 +214,7 @@ export default function MedicationsPage() {
     // Validate numeric fields
     const doseMin = parseOptionalNumber(formData.dose_min_per_kg);
     const doseMax = parseOptionalNumber(formData.dose_max_per_kg);
+    const concentration = parseOptionalNumber(formData.concentration);
 
     if (formData.dose_min_per_kg.trim() && doseMin === undefined) {
       setFormError('La dose minimum doit être un nombre valide');
@@ -215,6 +223,11 @@ export default function MedicationsPage() {
 
     if (formData.dose_max_per_kg.trim() && doseMax === undefined) {
       setFormError('La dose maximum doit être un nombre valide');
+      return;
+    }
+
+    if (formData.concentration.trim() && concentration === undefined) {
+      setFormError('La concentration doit être un nombre valide');
       return;
     }
 
@@ -227,6 +240,8 @@ export default function MedicationsPage() {
       dose_min_per_kg: doseMin,
       dose_max_per_kg: doseMax,
       dose_unit: formData.dose_unit.trim() || undefined,
+      concentration: concentration,
+      concentration_unit: formData.concentration_unit.trim() || undefined,
       notes: formData.notes.trim() || undefined,
     };
 
@@ -363,7 +378,33 @@ export default function MedicationsPage() {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Nom</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Unité</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Dosage</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Concentration</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
+                  <div className="flex items-center gap-2">
+                    <span>Dosage</span>
+                    <button
+                      onClick={() => setDosageDisplayMode(prev => prev === 'mg' ? 'ml' : 'mg')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors"
+                      title={`Afficher en ${dosageDisplayMode === 'mg' ? 'ml' : 'mg'}`}
+                    >
+                      {dosageDisplayMode === 'mg' ? (
+                        <>
+                          <span>mg</span>
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                          </svg>
+                        </>
+                      ) : (
+                        <>
+                          <span>ml</span>
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                          </svg>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Notes</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Actions</th>
               </tr>
@@ -372,31 +413,44 @@ export default function MedicationsPage() {
               {medications.map((med) => (
                 <tr key={med.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{safeString(med.name)}</p>
+                    <p className="font-medium text-gray-900">{med.name}</p>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{safeString(med.reference_unit)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{med.reference_unit}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {med.concentration !== null ? `${med.concentration} ${med.concentration_unit || 'mg/ml'}` : '-'}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {(() => {
-                      const doseMin = safeNumber(med.dose_min_per_kg);
-                      const doseMax = safeNumber(med.dose_max_per_kg);
-                      const doseUnit = safeString(med.dose_unit);
+                      const doseMin = med.dose_min_per_kg;
+                      const doseMax = med.dose_max_per_kg;
+                      const doseUnit = med.dose_unit || 'mg';
+                      const concentration = med.concentration;
+
+                      // Convert to ml if display mode is ml and concentration is available
+                      // Formula: volume (ml) = dose (mg/kg) × weight (kg) ÷ concentration (mg/ml)
+                      // Per kg: ml/kg = (mg/kg) / (mg/ml)
+                      const convertToMl = dosageDisplayMode === 'ml' && concentration !== null && concentration > 0;
+                      const displayMin = convertToMl && doseMin !== null ? (doseMin / concentration).toFixed(3) : doseMin;
+                      const displayMax = convertToMl && doseMax !== null ? (doseMax / concentration).toFixed(3) : doseMax;
+                      const displayUnit = convertToMl ? 'ml/kg' : `${doseUnit}/kg`;
+
                       if (doseMin !== null && doseMax !== null) {
-                        return <>{doseMin} - {doseMax} {doseUnit}</>;
+                        return <>{displayMin} - {displayMax} {displayUnit}</>;
                       } else if (doseMin !== null) {
-                        return <>{doseMin} {doseUnit}</>;
+                        return <>{displayMin} {displayUnit}</>;
                       }
                       return '-';
                     })()}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
-                    {safeString(med.notes) || '-'}
+                    {med.notes || '-'}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => handleOpenEdit(med)}
                         className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded"
-                        aria-label={`Modifier ${safeString(med.name)}`}
+                        aria-label={`Modifier ${med.name}`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -405,7 +459,7 @@ export default function MedicationsPage() {
                       <button
                         onClick={() => setDeleteModal(med)}
                         className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
-                        aria-label={`Supprimer ${safeString(med.name)}`}
+                        aria-label={`Supprimer ${med.name}`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -486,44 +540,86 @@ export default function MedicationsPage() {
                   disabled={isSubmitting}
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label htmlFor="med-dose-min" className="label">Dose min (par kg)</label>
-                  <input
-                    id="med-dose-min"
-                    type="number"
-                    step="0.01"
-                    value={formData.dose_min_per_kg}
-                    onChange={(e) => setFormData({ ...formData, dose_min_per_kg: e.target.value })}
-                    className="input"
-                    placeholder="0.5"
-                    disabled={isSubmitting}
-                  />
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Les doses sont calculées par kg de poids du cheval</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="med-dose-min" className="label">Dose min</label>
+                    <div className="relative">
+                      <input
+                        id="med-dose-min"
+                        type="number"
+                        step="0.01"
+                        value={formData.dose_min_per_kg}
+                        onChange={(e) => setFormData({ ...formData, dose_min_per_kg: e.target.value })}
+                        className="input pr-16"
+                        placeholder="0.5"
+                        disabled={isSubmitting}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                        {formData.dose_unit ? `${formData.dose_unit}/kg` : '/kg'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="med-dose-max" className="label">Dose max</label>
+                    <div className="relative">
+                      <input
+                        id="med-dose-max"
+                        type="number"
+                        step="0.01"
+                        value={formData.dose_max_per_kg}
+                        onChange={(e) => setFormData({ ...formData, dose_max_per_kg: e.target.value })}
+                        className="input pr-16"
+                        placeholder="1.1"
+                        disabled={isSubmitting}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                        {formData.dose_unit ? `${formData.dose_unit}/kg` : '/kg'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="med-dose-unit" className="label">Unité</label>
+                    <input
+                      id="med-dose-unit"
+                      type="text"
+                      value={formData.dose_unit}
+                      onChange={(e) => setFormData({ ...formData, dose_unit: e.target.value.replace(/\//g, '') })}
+                      className="input"
+                      placeholder="mg"
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label htmlFor="med-dose-max" className="label">Dose max (par kg)</label>
-                  <input
-                    id="med-dose-max"
-                    type="number"
-                    step="0.01"
-                    value={formData.dose_max_per_kg}
-                    onChange={(e) => setFormData({ ...formData, dose_max_per_kg: e.target.value })}
-                    className="input"
-                    placeholder="1.1"
-                    disabled={isSubmitting}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="med-dose-unit" className="label">Unité dose</label>
-                  <input
-                    id="med-dose-unit"
-                    type="text"
-                    value={formData.dose_unit}
-                    onChange={(e) => setFormData({ ...formData, dose_unit: e.target.value })}
-                    className="input"
-                    placeholder="mg/kg"
-                    disabled={isSubmitting}
-                  />
+              </div>
+              <div>
+                <label className="label">Concentration</label>
+                <p className="text-xs text-gray-500 mb-2">Permet le calcul automatique : volume (ml) = dose (mg/kg) × poids (kg) ÷ concentration</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <input
+                      id="med-concentration"
+                      type="number"
+                      step="0.01"
+                      value={formData.concentration}
+                      onChange={(e) => setFormData({ ...formData, concentration: e.target.value })}
+                      className="input"
+                      placeholder="Ex: 50"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      id="med-concentration-unit"
+                      type="text"
+                      value={formData.concentration_unit}
+                      onChange={(e) => setFormData({ ...formData, concentration_unit: e.target.value })}
+                      className="input"
+                      placeholder="mg/ml"
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
               </div>
               <div>
@@ -597,8 +693,8 @@ export default function MedicationsPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">{safeString(deleteModal.name)}</p>
-                  <p className="text-sm text-gray-500">{safeString(deleteModal.reference_unit)}</p>
+                  <p className="font-medium text-gray-900">{deleteModal.name}</p>
+                  <p className="text-sm text-gray-500">{deleteModal.reference_unit}</p>
                 </div>
               </div>
             </div>

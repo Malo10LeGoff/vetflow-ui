@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { materialsApi } from '@/lib/api';
-import { safeString } from '@/lib/utils';
 import { Material } from '@/types';
 
 const PAGE_SIZE = 20;
@@ -17,6 +16,7 @@ export default function MaterialsPage() {
   const [formData, setFormData] = useState({
     name: '',
     unit: '',
+    notes: '',
   });
   const [deleteModal, setDeleteModal] = useState<Material | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -151,7 +151,7 @@ export default function MaterialsPage() {
   }, [deleteModal]);
 
   const resetForm = () => {
-    setFormData({ name: '', unit: '' });
+    setFormData({ name: '', unit: '', notes: '' });
     setEditingMaterial(null);
     setFormError(null);
   };
@@ -164,8 +164,9 @@ export default function MaterialsPage() {
   const handleOpenEdit = (material: Material) => {
     setEditingMaterial(material);
     setFormData({
-      name: safeString(material.name) || '',
-      unit: safeString(material.unit) || '',
+      name: material.name || '',
+      unit: material.unit || '',
+      notes: material.notes || '',
     });
     setFormError(null);
     setShowModal(true);
@@ -174,6 +175,7 @@ export default function MaterialsPage() {
   const handleSubmit = async () => {
     const trimmedName = formData.name.trim();
     const trimmedUnit = formData.unit.trim();
+    const trimmedNotes = formData.notes.trim();
 
     if (!trimmedName || !trimmedUnit) {
       setFormError('Le nom et l\'unité sont requis');
@@ -183,7 +185,7 @@ export default function MaterialsPage() {
     setIsSubmitting(true);
     setFormError(null);
     try {
-      const payload = { name: trimmedName, unit: trimmedUnit };
+      const payload = { name: trimmedName, unit: trimmedUnit, notes: trimmedNotes || undefined };
       if (editingMaterial) {
         await materialsApi.update(editingMaterial.id, payload);
       } else {
@@ -316,6 +318,7 @@ export default function MaterialsPage() {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Nom</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Unité</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Notes</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Actions</th>
               </tr>
             </thead>
@@ -323,15 +326,16 @@ export default function MaterialsPage() {
               {materials.map((mat) => (
                 <tr key={mat.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{safeString(mat.name)}</p>
+                    <p className="font-medium text-gray-900">{mat.name}</p>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{safeString(mat.unit)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{mat.unit}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">{mat.notes || '-'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => handleOpenEdit(mat)}
                         className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded"
-                        aria-label={`Modifier ${safeString(mat.name)}`}
+                        aria-label={`Modifier ${mat.name}`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -340,7 +344,7 @@ export default function MaterialsPage() {
                       <button
                         onClick={() => setDeleteModal(mat)}
                         className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
-                        aria-label={`Supprimer ${safeString(mat.name)}`}
+                        aria-label={`Supprimer ${mat.name}`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -421,6 +425,18 @@ export default function MaterialsPage() {
                   disabled={isSubmitting}
                 />
               </div>
+              <div>
+                <label htmlFor="material-notes" className="label">Notes</label>
+                <textarea
+                  id="material-notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="input min-h-[80px]"
+                  placeholder="Informations complémentaires..."
+                  disabled={isSubmitting}
+                  rows={3}
+                />
+              </div>
               {formError && (
                 <p className="text-sm text-red-600">{formError}</p>
               )}
@@ -481,8 +497,8 @@ export default function MaterialsPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">{safeString(deleteModal.name)}</p>
-                  <p className="text-sm text-gray-500">{safeString(deleteModal.unit)}</p>
+                  <p className="font-medium text-gray-900">{deleteModal.name}</p>
+                  <p className="text-sm text-gray-500">{deleteModal.unit}</p>
                 </div>
               </div>
             </div>

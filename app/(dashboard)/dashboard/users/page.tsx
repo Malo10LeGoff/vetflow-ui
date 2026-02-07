@@ -22,7 +22,6 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [deleteModal, setDeleteModal] = useState<User | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
@@ -37,8 +36,8 @@ export default function UsersPage() {
 
   const loadData = async () => {
     try {
-      const data = await usersApi.getAll();
-      setUsers(data);
+      const response = await usersApi.getAll();
+      setUsers(response.items);
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -81,21 +80,6 @@ export default function UsersPage() {
       handleCloseEdit();
     } catch (error) {
       console.error('Error updating user:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteModal) return;
-
-    setIsSubmitting(true);
-    try {
-      await usersApi.delete(deleteModal.id);
-      setUsers(users.filter(u => u.id !== deleteModal.id));
-      setDeleteModal(null);
-    } catch (error) {
-      console.error('Error deleting user:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -153,8 +137,8 @@ export default function UsersPage() {
                 <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-medium text-gray-600">
+                      <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-medium text-white">
                           {user.first_name?.charAt(0).toUpperCase() || 'U'}
                         </span>
                       </div>
@@ -185,15 +169,6 @@ export default function UsersPage() {
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => setDeleteModal(user)}
-                          className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
-                          title="Supprimer"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
                       </div>
@@ -295,68 +270,6 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {deleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="card p-6 w-full max-w-md mx-4">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Supprimer le compte</h3>
-                <p className="text-sm text-gray-500">Cette action est irréversible</p>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center">
-                  <span className="text-sm font-medium text-gray-600">
-                    {deleteModal.first_name?.charAt(0).toUpperCase() || 'U'}
-                  </span>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">
-                    {deleteModal.first_name} {deleteModal.last_name}
-                  </p>
-                  <p className="text-sm text-gray-500">{deleteModal.email}</p>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-sm text-gray-600 mb-6">
-              Êtes-vous sûr de vouloir supprimer votre compte ? Toutes vos données seront définitivement perdues.
-            </p>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setDeleteModal(null)}
-                className="btn-secondary"
-                disabled={isSubmitting}
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleDelete}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <span className="flex items-center gap-2">
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Suppression...
-                  </span>
-                ) : (
-                  'Supprimer'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

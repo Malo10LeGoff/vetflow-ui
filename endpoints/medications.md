@@ -32,6 +32,8 @@ Get medications for the clinic with pagination.
       "dose_min_per_kg": 0.5,
       "dose_max_per_kg": 1.1,
       "dose_unit": "mg/kg",
+      "concentration": 50,
+      "concentration_unit": "mg/ml",
       "notes": "AINS - Anti-douleur",
       "created_at": "2024-02-01T00:00:00Z"
     },
@@ -43,7 +45,9 @@ Get medications for the clinic with pagination.
       "dose_min_per_kg": 2.2,
       "dose_max_per_kg": 4.4,
       "dose_unit": "mg/kg",
-      "notes": "AINS - Anti-inflammatoire",
+      "concentration": null,
+      "concentration_unit": null,
+      "notes": "AINS - Anti-inflammatoire (oral powder)",
       "created_at": "2024-02-01T00:00:00Z"
     }
   ],
@@ -69,6 +73,8 @@ Get a single medication.
   "dose_min_per_kg": 0.5,
   "dose_max_per_kg": 1.1,
   "dose_unit": "mg/kg",
+  "concentration": 50,
+  "concentration_unit": "mg/ml",
   "notes": "AINS - Anti-douleur",
   "created_at": "2024-02-01T00:00:00Z"
 }
@@ -80,7 +86,7 @@ Get a single medication.
 
 Create a new medication.
 
-**Request (with dosing info):**
+**Request (with dosing info and concentration):**
 ```json
 {
   "name": "Acépromazine (Calmivet)",
@@ -88,6 +94,8 @@ Create a new medication.
   "dose_min_per_kg": 0.02,
   "dose_max_per_kg": 0.05,
   "dose_unit": "mg/kg",
+  "concentration": 10,
+  "concentration_unit": "mg/ml",
   "notes": "Tranquillisant phénothiazine"
 }
 ```
@@ -101,6 +109,18 @@ Create a new medication.
 }
 ```
 
+**Request Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Medication name |
+| `reference_unit` | string | Yes | Unit of measurement (ml, g, etc.) |
+| `dose_min_per_kg` | float | No | Minimum dose per kg body weight |
+| `dose_max_per_kg` | float | No | Maximum dose per kg body weight |
+| `dose_unit` | string | No | Unit for dosing (mg/kg, etc.) |
+| `concentration` | float | No | Drug concentration (e.g., 50 for 50 mg/ml) |
+| `concentration_unit` | string | No | Unit for concentration (mg/ml, IU/ml, etc.) |
+| `notes` | string | No | Additional notes |
+
 **Response (201 Created):**
 ```json
 {
@@ -111,6 +131,8 @@ Create a new medication.
   "dose_min_per_kg": 0.02,
   "dose_max_per_kg": 0.05,
   "dose_unit": "mg/kg",
+  "concentration": 10,
+  "concentration_unit": "mg/ml",
   "notes": "Tranquillisant phénothiazine",
   "created_at": "2024-02-05T14:00:00Z"
 }
@@ -130,6 +152,8 @@ Update a medication.
   "dose_min_per_kg": 0.5,
   "dose_max_per_kg": 1.1,
   "dose_unit": "mg/kg",
+  "concentration": 50,
+  "concentration_unit": "mg/ml",
   "notes": "AINS - Anti-douleur. IV ou IM."
 }
 ```
@@ -144,6 +168,8 @@ Update a medication.
   "dose_min_per_kg": 0.5,
   "dose_max_per_kg": 1.1,
   "dose_unit": "mg/kg",
+  "concentration": 50,
+  "concentration_unit": "mg/ml",
   "notes": "AINS - Anti-douleur. IV ou IM.",
   "created_at": "2024-02-01T00:00:00Z"
 }
