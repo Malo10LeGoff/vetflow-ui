@@ -2403,7 +2403,7 @@ function ScheduleModal({
         default_value: '',
       });
     } catch (err) {
-      setError('Erreur lors de la création du planning');
+      setError(err instanceof Error ? err.message : 'Erreur lors de la création du planning');
       console.error(err);
     } finally {
       setIsSubmitting(false);

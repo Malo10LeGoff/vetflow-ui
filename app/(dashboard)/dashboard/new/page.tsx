@@ -114,7 +114,7 @@ export default function NewPatientPage() {
 
       router.push(`/dashboard/patient/${hospitalization.id}`);
     } catch (err) {
-      setError('Une erreur est survenue lors de la création du patient');
+      setError(err instanceof Error ? err.message : 'Erreur lors de la création du patient');
       console.error(err);
       setIsLoading(false);
     }
