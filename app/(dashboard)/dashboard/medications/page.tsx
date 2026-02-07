@@ -435,6 +435,10 @@ export default function MedicationsPage() {
                       const displayUnit = convertToMl ? 'ml/kg' : `${doseUnit}/kg`;
 
                       if (doseMin !== null && doseMax !== null) {
+                        // Show single value if min equals max
+                        if (doseMin === doseMax) {
+                          return <>{displayMin} {displayUnit}</>;
+                        }
                         return <>{displayMin} - {displayMax} {displayUnit}</>;
                       } else if (doseMin !== null) {
                         return <>{displayMin} {displayUnit}</>;
