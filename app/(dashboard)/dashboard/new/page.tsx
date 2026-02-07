@@ -36,13 +36,14 @@ export default function NewPatientPage() {
       // Handle both array and paginated response
       const items = Array.isArray(response) ? response : (response.items || []);
       setCategories(items);
-      if (items.length > 0 && !formData.category) {
-        setFormData(prev => ({ ...prev, category: items[0].name }));
+      // Use functional update to avoid stale closure
+      if (items.length > 0) {
+        setFormData(prev => prev.category ? prev : { ...prev, category: items[0].name });
       }
     } catch (error) {
       console.error('Error loading categories:', error);
     }
-  }, [formData.category]);
+  }, []);
 
   useEffect(() => {
     loadCategories();

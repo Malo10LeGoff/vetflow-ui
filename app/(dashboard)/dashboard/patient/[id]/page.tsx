@@ -99,11 +99,10 @@ function ChartCell({
 
   // Close context menu when clicking outside
   useEffect(() => {
+    if (!showContextMenu) return;
     const handleClickOutside = () => setShowContextMenu(false);
-    if (showContextMenu) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, [showContextMenu]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -133,9 +132,12 @@ function ChartCell({
     }
   }, [entry, row.row_kind]);
 
+  // Only sync value from displayValue when not actively editing
   useEffect(() => {
-    setValue(displayValue);
-  }, [displayValue]);
+    if (!isEditing) {
+      setValue(displayValue);
+    }
+  }, [displayValue, isEditing]);
 
   const handleDoubleClick = () => {
     if (isDisabled) return;
@@ -554,6 +556,11 @@ export default function PatientFilePage() {
     loadData();
   }, [loadData]);
 
+  // Reset scroll flag when patient changes
+  useEffect(() => {
+    hasScrolledToCurrentHour.current = false;
+  }, [hospitalizationId]);
+
   // Auto-scroll to current hour on initial load only
   useEffect(() => {
     if (!isLoading && chartData && scrollContainerRef.current && !hasScrolledToCurrentHour.current) {
@@ -567,11 +574,10 @@ export default function PatientFilePage() {
 
   // Close row context menu when clicking outside
   useEffect(() => {
+    if (!rowContextMenu) return;
     const handleClickOutside = () => setRowContextMenu(null);
-    if (rowContextMenu) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, [rowContextMenu]);
 
   // Calculate date boundaries

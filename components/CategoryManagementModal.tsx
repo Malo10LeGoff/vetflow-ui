@@ -100,14 +100,14 @@ export default function CategoryManagementModal({ isOpen, onClose, onCategoriesC
   const handleStartAdd = () => {
     setIsAdding(true);
     setEditingCategory(null);
-    setFormData({ name: '', color: 'blue' });
+    setFormData({ name: '', color: '#3B82F6' });
     setError(null);
   };
 
   const handleCancel = () => {
     setIsAdding(false);
     setEditingCategory(null);
-    setFormData({ name: '', color: 'blue' });
+    setFormData({ name: '', color: '#3B82F6' });
     setError(null);
   };
 

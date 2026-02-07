@@ -92,10 +92,14 @@ async function apiCall<T>(
 
     return response.json();
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('La requête a expiré. Veuillez réessayer.');
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('La requête a expiré. Veuillez réessayer.');
+      }
+      throw error;
     }
-    throw error;
+    // Normalize non-Error objects to Error
+    throw new Error(String(error));
   } finally {
     clearTimeout(timeoutId);
   }

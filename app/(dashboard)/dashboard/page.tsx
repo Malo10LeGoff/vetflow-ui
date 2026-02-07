@@ -79,12 +79,13 @@ export default function DashboardPage() {
 
   const handleArchive = async (hosp: Hospitalization) => {
     setArchivingId(hosp.id);
-    setArchiveModal(null);
     try {
       await hospitalizationsApi.archive(hosp.id);
       setHospitalizations(prev => prev.filter(h => h.id !== hosp.id));
+      setArchiveModal(null);
     } catch (error) {
       console.error('Error archiving:', error);
+      setArchiveModal(null);
     } finally {
       setArchivingId(null);
     }
