@@ -172,6 +172,7 @@ export default function ArchivesPage() {
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Catégorie</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Admission</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Durée</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Archivé le</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Actions</th>
                 </tr>
               </thead>
@@ -197,6 +198,7 @@ export default function ArchivesPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{formatDate(hosp.admission_at)}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{formatDuration(hosp.duration_days, hosp.duration_hours)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{hosp.archived_at ? formatDate(hosp.archived_at) : '-'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <Link
